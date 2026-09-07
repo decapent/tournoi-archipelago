@@ -64,8 +64,8 @@ public class StatsServiceTests
             Assert.Equal(0, ligne.Abandons);
         });
 
-        var equipeA = classement.Single(l => l.EquipeNom == "Alice & Bob");
-        var equipeB = classement.Single(l => l.EquipeNom == "Chloe & David");
+        var equipeA = classement.Single(l => l.EquipeNom == "Les Nous_");
+        var equipeB = classement.Single(l => l.EquipeNom == "No M's Land");
 
         Assert.Equal(11_600, equipeA.TempsCumuleSecs);
         Assert.Equal(9_500, equipeB.TempsCumuleSecs);
@@ -73,7 +73,7 @@ public class StatsServiceTests
         Assert.Equal(220, equipeA.ChecksTrouves);
 
         // A egalite de victoires, le plus petit temps cumule passe devant.
-        Assert.Equal("Chloe & David", classement[0].EquipeNom);
+        Assert.Equal("No M's Land", classement[0].EquipeNom);
         Assert.Equal(1, classement[0].Position);
     }
 
@@ -95,14 +95,14 @@ public class StatsServiceTests
         var service = new StatsService(contexte.Creer());
 
         var parVictoires = await service.ClassementAsync(null, TriClassement.Victoires);
-        Assert.Equal("Alice & Bob", parVictoires[0].EquipeNom);
+        Assert.Equal("Les Nous_", parVictoires[0].EquipeNom);
 
         var parTemps = await service.ClassementAsync(null, TriClassement.Temps);
-        Assert.Equal("Alice & Bob", parTemps[0].EquipeNom);
+        Assert.Equal("Les Nous_", parTemps[0].EquipeNom);
         Assert.Equal(200, parTemps[0].TempsCumuleSecs);
 
         // L'equipe B a un abandon : temps moyen absent, mais un abandon comptabilise.
-        var equipeB = parTemps.Single(l => l.EquipeNom == "Chloe & David");
+        var equipeB = parTemps.Single(l => l.EquipeNom == "No M's Land");
         Assert.Equal(1, equipeB.Abandons);
         Assert.Null(equipeB.TempsMoyenSecs);
         Assert.Equal(1_000, equipeB.TempsCumuleSecs);
@@ -125,7 +125,7 @@ public class StatsServiceTests
         var service = new StatsService(contexte.Creer());
 
         var qualifications = await service.ClassementAsync(TypeMatch.QUALIFICATION, TriClassement.Victoires);
-        Assert.Equal(1, qualifications.Single(l => l.EquipeNom == "Alice & Bob").MatchsJoues);
+        Assert.Equal(1, qualifications.Single(l => l.EquipeNom == "Les Nous_").MatchsJoues);
 
         var tournois = await service.ClassementAsync(TypeMatch.TOURNOI, TriClassement.Victoires);
         Assert.All(tournois, ligne => Assert.Equal(0, ligne.MatchsJoues));
@@ -141,7 +141,7 @@ public class StatsServiceTests
         var frank = new Joueur { Nom = "Frank" };
         contexte.Db.Joueurs.AddRange(eve, frank);
         await contexte.Db.SaveChangesAsync();
-        contexte.Db.Equipes.Add(new Equipe { Joueur1Id = eve.Id, Joueur2Id = frank.Id });
+        contexte.Db.Equipes.Add(EquipeAvec("AGreatTeam", eve, frank));
         await contexte.Db.SaveChangesAsync();
 
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
@@ -156,7 +156,7 @@ public class StatsServiceTests
         var classement = await service.ClassementAsync(null, TriClassement.Temps);
 
         Assert.Equal(3, classement.Count);
-        Assert.Equal("Eve & Frank", classement[^1].EquipeNom);
+        Assert.Equal("AGreatTeam", classement[^1].EquipeNom);
         Assert.Equal(0, classement[^1].MatchsJoues);
     }
 
@@ -213,6 +213,13 @@ public class StatsServiceTests
         Assert.Null(jamaisJoue.PourcentCompleteMoyen);
     }
 
+    /// <summary>Equipe prete a etre inseree, avec son roster.</summary>
+    private static Equipe EquipeAvec(string nom, params Joueur[] membres) => new()
+    {
+        Nom = nom,
+        Membres = [.. membres.Select(joueur => new EquipeJoueur { JoueurId = joueur.Id })],
+    };
+
     private static async Task<DonneesSemees> SemerAsync(ContexteDeTest contexte)
     {
         var db = contexte.Db;
@@ -225,8 +232,8 @@ public class StatsServiceTests
         await db.SaveChangesAsync();
 
         db.Equipes.AddRange(
-            new Equipe { Joueur1Id = alice.Id, Joueur2Id = bob.Id },
-            new Equipe { Joueur1Id = chloe.Id, Joueur2Id = david.Id });
+            EquipeAvec("Les Nous_", alice, bob),
+            EquipeAvec("No M's Land", chloe, david));
         await db.SaveChangesAsync();
 
         // Les jeux viennent du seed du modele.

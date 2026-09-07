@@ -7,16 +7,21 @@ using TournoiArchipelago.Api.Infrastructure;
 namespace TournoiArchipelago.Api.Services;
 
 /// <summary>
-/// Saisie et consultation des matchs. Un match oppose exactement deux equipes et comporte
-/// donc quatre lignes de resultat, une par joueur.
+/// Saisie et consultation des matchs. Un match oppose toujours deux equipes, mais le nombre de
+/// participants par equipe varie selon l'etape : deux en qualification, trois en demi-finale,
+/// quatre en finale. Ce nombre n'est pas configure, il se deduit des lignes saisies ; la seule
+/// exigence est que les deux equipes alignent autant de joueurs l'une que l'autre.
 /// </summary>
 public class MatchService(TournoiDbContext db)
 {
     /// <summary>Nombre d'equipes qui s'affrontent dans un match.</summary>
     public const int NbEquipesParMatch = 2;
 
-    /// <summary>Nombre de lignes de resultat attendues : deux equipes de deux joueurs.</summary>
-    public const int NbResultatsParMatch = 4;
+    /// <summary>Nombre minimal de participants par equipe (format qualification).</summary>
+    public const int NbJoueursMinParEquipe = 2;
+
+    /// <summary>Nombre maximal de participants par equipe (roster complet, format finale).</summary>
+    public const int NbJoueursMaxParEquipe = 4;
 
     public async Task<IReadOnlyList<MatchSommaireDto>> ListerAsync(
         TypeMatch? type,
@@ -173,8 +178,7 @@ public class MatchService(TournoiDbContext db)
 
     private Task<List<Equipe>> ChargerEquipesAsync(CancellationToken annulation) =>
         db.Equipes
-            .Include(e => e.Joueur1)
-            .Include(e => e.Joueur2)
+            .Include(e => e.Membres).ThenInclude(m => m.Joueur)
             .AsNoTracking()
             .ToListAsync(annulation);
 
@@ -216,8 +220,7 @@ public class MatchService(TournoiDbContext db)
         }
 
         var equipes = await db.Equipes
-            .Include(e => e.Joueur1)
-            .Include(e => e.Joueur2)
+            .Include(e => e.Membres)
             .AsNoTracking()
             .Where(e => e.Id == requete.EquipeAId || e.Id == requete.EquipeBId)
             .ToListAsync(annulation);
@@ -230,14 +233,6 @@ public class MatchService(TournoiDbContext db)
         }
 
         var resultats = requete.Resultats ?? [];
-        if (resultats.Count != NbResultatsParMatch)
-        {
-            Ajouter(
-                "resultats",
-                $"Un match attend exactement {NbResultatsParMatch} resultats (deux equipes de deux joueurs), {resultats.Count} recu(s).");
-        }
-
-        var joueursAttendus = equipes.SelectMany(e => e.MembreIds).ToHashSet();
         var joueursSaisis = resultats.Select(r => r.JoueurId).ToList();
 
         var doublons = joueursSaisis.GroupBy(id => id).Where(g => g.Count() > 1).Select(g => g.Key).ToList();
@@ -246,19 +241,50 @@ public class MatchService(TournoiDbContext db)
             Ajouter("resultats", $"Un joueur ne peut apparaitre qu'une seule fois par match : {string.Join(", ", doublons)}.");
         }
 
-        if (joueursAttendus.Count > 0)
+        if (equipes.Count == NbEquipesParMatch)
         {
-            var intrus = joueursSaisis.Where(id => !joueursAttendus.Contains(id)).Distinct().ToList();
+            var rosters = equipes.ToDictionary(e => e.Id, e => e.MembreIds.ToHashSet());
+
+            var intrus = joueursSaisis
+                .Where(id => !rosters.Values.Any(roster => roster.Contains(id)))
+                .Distinct()
+                .ToList();
+
             if (intrus.Count > 0)
             {
                 Ajouter("resultats", $"Ces joueurs ne font pas partie des deux equipes : {string.Join(", ", intrus)}.");
             }
 
-            var absents = joueursAttendus.Except(joueursSaisis).ToList();
-            if (absents.Count > 0)
+            // Le format du match n'est pas configure : il decoule du nombre de joueurs alignes.
+            // On exige seulement que les deux equipes en alignent autant l'une que l'autre.
+            var effectifs = equipes.ToDictionary(
+                equipe => equipe,
+                equipe => joueursSaisis.Count(id => rosters[equipe.Id].Contains(id)));
+
+            var distincts = effectifs.Values.Distinct().ToList();
+            if (distincts.Count > 1)
             {
-                Ajouter("resultats", $"Resultat manquant pour les joueurs : {string.Join(", ", absents)}.");
+                var detail = string.Join(
+                    " contre ",
+                    effectifs.Select(paire => $"{paire.Value} pour {paire.Key.Nom}"));
+
+                Ajouter("resultats", $"Les deux equipes doivent aligner le meme nombre de joueurs : {detail}.");
             }
+            else
+            {
+                var effectif = distincts.Count == 1 ? distincts[0] : 0;
+
+                if (effectif < NbJoueursMinParEquipe || effectif > NbJoueursMaxParEquipe)
+                {
+                    Ajouter(
+                        "resultats",
+                        $"Chaque equipe doit aligner entre {NbJoueursMinParEquipe} et {NbJoueursMaxParEquipe} joueurs, {effectif} recu(s).");
+                }
+            }
+        }
+        else if (resultats.Count == 0)
+        {
+            Ajouter("resultats", "Aucun resultat saisi.");
         }
 
         var jeuxDemandes = resultats.Select(r => r.JeuId).Distinct().ToList();

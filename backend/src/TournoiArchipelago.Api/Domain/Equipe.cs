@@ -1,29 +1,18 @@
 namespace TournoiArchipelago.Api.Domain;
 
 /// <summary>
-/// Duo de joueurs. L'equipe n'est pas rattachee a un match : le regroupement des lignes
-/// <see cref="MatchJeu"/> en equipes se deduit de l'appartenance des joueurs, ce qui suppose
-/// qu'un joueur n'est membre que d'une seule equipe (verifie par EquipeService).
+/// Equipe du tournoi. Le roster compte quatre joueurs ; le nombre de participants a un match
+/// donne varie selon l'etape (deux en qualification, trois en demi-finale, quatre en finale)
+/// et se deduit des lignes <see cref="MatchJeu"/> saisies.
 /// </summary>
-public class Equipe
+public class Equipe : INomme
 {
     public int Id { get; set; }
 
-    public int Joueur1Id { get; set; }
+    public string Nom { get; set; } = string.Empty;
 
-    public int Joueur2Id { get; set; }
+    public ICollection<EquipeJoueur> Membres { get; set; } = new List<EquipeJoueur>();
 
-    public Joueur? Joueur1 { get; set; }
-
-    public Joueur? Joueur2 { get; set; }
-
-    /// <summary>Identifiants des deux membres, dans l'ordre de stockage.</summary>
-    public IEnumerable<int> MembreIds
-    {
-        get
-        {
-            yield return Joueur1Id;
-            yield return Joueur2Id;
-        }
-    }
+    /// <summary>Identifiants des joueurs du roster.</summary>
+    public IEnumerable<int> MembreIds => Membres.Select(membre => membre.JoueurId);
 }

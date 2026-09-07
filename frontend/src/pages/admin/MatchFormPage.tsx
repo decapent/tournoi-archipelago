@@ -6,7 +6,13 @@ import type { Equipe, Jeu, MatchDetail, MatchUpsert, TypeMatch } from '../../api
 import { TYPES_MATCH } from '../../api/types'
 import { Chargement, Erreur, Vide } from '../../components/Etats'
 import { dateDuJourIso, formaterPourcent, formaterTemps } from '../../lib/format'
-import { calculerApercu, validerLignes, versResultats } from './apercuMatch'
+import {
+  MAX_PARTICIPANTS,
+  MIN_PARTICIPANTS,
+  calculerApercu,
+  validerLignes,
+  versResultats,
+} from './apercuMatch'
 import type { ApercuEquipe, LigneSaisie } from './apercuMatch'
 
 /** Valeurs de depart du formulaire : celles d un match existant, ou un brouillon vide. */
@@ -91,10 +97,15 @@ function FormulaireMatch({
 
   const apercu = useMemo(() => calculerApercu(lignes), [lignes])
   const problemes = useMemo(() => validerLignes(lignes), [lignes])
-  const pret =
-    lignes.length === 4 && problemes.length === 0 && equipeAId !== null && equipeBId !== null
 
-  /** Changer d equipe regenere les quatre lignes depuis les membres des deux duos. */
+  const nbParticipants = lignes.filter((ligne) => ligne.participe).length
+  const pret =
+    nbParticipants >= MIN_PARTICIPANTS * 2 &&
+    problemes.length === 0 &&
+    equipeAId !== null &&
+    equipeBId !== null
+
+  /** Changer d equipe regenere les lignes depuis les rosters des deux equipes. */
   function choisirEquipe(cote: 'A' | 'B', nouvelId: number | null) {
     const idA = cote === 'A' ? nouvelId : equipeAId
     const idB = cote === 'B' ? nouvelId : equipeBId
@@ -129,6 +140,16 @@ function FormulaireMatch({
     void naviguer(`/matchs/${enregistre.id}`)
   }
 
+  // Les lignes sont presentees equipe par equipe, dans l ordre des deux selecteurs.
+  const parEquipe = [equipeAId, equipeBId]
+    .filter((id): id is number => id !== null)
+    .map((equipeId) => ({
+      equipeId,
+      nom: equipes.find((equipe) => equipe.id === equipeId)?.nom ?? '',
+      lignes: lignes.filter((ligne) => ligne.equipeId === equipeId),
+    }))
+    .filter((groupe) => groupe.lignes.length > 0)
+
   return (
     <form onSubmit={(evenement) => void soumettre(evenement)}>
       <header className="mb-4">
@@ -136,8 +157,8 @@ function FormulaireMatch({
           {enEdition ? `Corriger le match ${matchId}` : 'Saisir un match'}
         </h1>
         <p className="text-texte-doux mt-1 text-sm">
-          Un match oppose deux equipes, soit quatre resultats. Laisser le temps vide pour un
-          abandon.
+          Coche les joueurs qui participent : {MIN_PARTICIPANTS} par equipe en qualification, 3 en
+          demi-finale, {MAX_PARTICIPANTS} en finale. Laisse le temps vide pour un abandon.
         </p>
       </header>
 
@@ -185,92 +206,118 @@ function FormulaireMatch({
         />
       </div>
 
-      {lignes.length === 0 ? (
+      {parEquipe.length === 0 ? (
         <Vide>Choisis les deux equipes pour saisir leurs resultats.</Vide>
       ) : (
         <>
-          <div className="panneau mb-4 overflow-x-auto">
-            <table className="tableau">
-              <thead>
-                <tr>
-                  <th>Joueur</th>
-                  <th>Equipe</th>
-                  <th>Jeu</th>
-                  <th>Seed</th>
-                  <th className="num">Checks trouves</th>
-                  <th className="num">Total du jeu</th>
-                  <th>Temps</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lignes.map((ligne) => (
-                  <tr key={ligne.joueurId}>
-                    <td className="font-medium whitespace-nowrap">{ligne.joueurNom}</td>
-                    <td className="text-texte-doux text-xs whitespace-nowrap">{ligne.equipeNom}</td>
-                    <td>
-                      <select
-                        className="champ w-44"
-                        value={ligne.jeuId ?? ''}
-                        onChange={(evenement) =>
-                          majLigne(ligne.joueurId, {
-                            jeuId:
-                              evenement.target.value === '' ? null : Number(evenement.target.value),
-                          })
-                        }
-                        required
-                      >
-                        <option value="">Choisir...</option>
-                        {jeux.map((jeu) => (
-                          <option key={jeu.id} value={jeu.id}>
-                            {jeu.nom}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td>
-                      <input
-                        className="champ w-28"
-                        value={ligne.seed}
-                        placeholder="optionnel"
-                        onChange={(evenement) =>
-                          majLigne(ligne.joueurId, { seed: evenement.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="num">
-                      <input
-                        className="champ w-20 text-right"
-                        inputMode="numeric"
-                        value={ligne.nbChecks}
-                        onChange={(evenement) =>
-                          majLigne(ligne.joueurId, { nbChecks: evenement.target.value })
-                        }
-                      />
-                    </td>
-                    <td className="num">
-                      <input
-                        className="champ w-20 text-right"
-                        inputMode="numeric"
-                        value={ligne.totalChecks}
-                        onChange={(evenement) =>
-                          majLigne(ligne.joueurId, { totalChecks: evenement.target.value })
-                        }
-                      />
-                    </td>
-                    <td>
-                      <input
-                        className="champ w-24"
-                        placeholder="hh:mm:ss"
-                        value={ligne.temps}
-                        onChange={(evenement) =>
-                          majLigne(ligne.joueurId, { temps: evenement.target.value })
-                        }
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="mb-4 space-y-4">
+            {parEquipe.map((groupe) => (
+              <div key={groupe.equipeId} className="panneau overflow-x-auto">
+                <div className="border-bordure flex items-baseline justify-between border-b px-3 py-2">
+                  <h2 className="font-medium">{groupe.nom}</h2>
+                  <span className="text-texte-doux text-xs">
+                    {groupe.lignes.filter((ligne) => ligne.participe).length} participant(s)
+                  </span>
+                </div>
+
+                <table className="tableau">
+                  <thead>
+                    <tr>
+                      <th className="w-12">Joue</th>
+                      <th>Joueur</th>
+                      <th>Jeu</th>
+                      <th>Seed</th>
+                      <th className="num">Checks trouves</th>
+                      <th className="num">Total du jeu</th>
+                      <th>Temps</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupe.lignes.map((ligne) => (
+                      <tr key={ligne.joueurId} className={ligne.participe ? undefined : 'opacity-40'}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={ligne.participe}
+                            aria-label={`${ligne.joueurNom} participe`}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { participe: evenement.target.checked })
+                            }
+                          />
+                        </td>
+                        <td className="font-medium whitespace-nowrap">{ligne.joueurNom}</td>
+                        <td>
+                          <select
+                            className="champ w-44"
+                            value={ligne.jeuId ?? ''}
+                            disabled={!ligne.participe}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, {
+                                jeuId:
+                                  evenement.target.value === ''
+                                    ? null
+                                    : Number(evenement.target.value),
+                              })
+                            }
+                          >
+                            <option value="">Choisir...</option>
+                            {jeux.map((jeu) => (
+                              <option key={jeu.id} value={jeu.id}>
+                                {jeu.nom}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td>
+                          <input
+                            className="champ w-28"
+                            value={ligne.seed}
+                            placeholder="optionnel"
+                            disabled={!ligne.participe}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { seed: evenement.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="num">
+                          <input
+                            className="champ w-20 text-right"
+                            inputMode="numeric"
+                            value={ligne.nbChecks}
+                            disabled={!ligne.participe}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { nbChecks: evenement.target.value })
+                            }
+                          />
+                        </td>
+                        <td className="num">
+                          <input
+                            className="champ w-20 text-right"
+                            inputMode="numeric"
+                            value={ligne.totalChecks}
+                            disabled={!ligne.participe}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { totalChecks: evenement.target.value })
+                            }
+                          />
+                        </td>
+                        <td>
+                          <input
+                            className="champ w-24"
+                            placeholder="hh:mm:ss"
+                            value={ligne.temps}
+                            disabled={!ligne.participe}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { temps: evenement.target.value })
+                            }
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ))}
           </div>
 
           <Apercu apercu={apercu} />
@@ -392,31 +439,44 @@ function brouillonVide(): ValeursInitiales {
 function depuisMatch(match: MatchDetail, equipes: Equipe[]): ValeursInitiales {
   const ids = match.equipes.map((equipe) => equipe.equipeId).filter((id) => id !== null)
 
+  // Le roster complet est affiche, y compris les membres qui n ont pas joue ce match : cocher
+  // un remplacant doit rester possible en correction.
+  const lignes = ids.flatMap((equipeId) => {
+    const equipe = equipes.find((e) => e.id === equipeId)
+    const resultat = match.equipes.find((e) => e.equipeId === equipeId)
+    const roster = equipe?.membres ?? resultat?.lignes.map((l) => ({ id: l.joueurId, nom: l.joueurNom })) ?? []
+
+    return roster.map((joueur) => {
+      const jouee = resultat?.lignes.find((ligne) => ligne.joueurId === joueur.id)
+
+      return {
+        joueurId: joueur.id,
+        joueurNom: joueur.nom,
+        equipeId,
+        equipeNom: equipe?.nom ?? resultat?.equipeNom ?? '',
+        participe: jouee !== undefined,
+        jeuId: jouee?.jeuId ?? null,
+        seed: jouee?.seed ?? '',
+        totalChecks: jouee?.totalChecks == null ? '' : String(jouee.totalChecks),
+        nbChecks: jouee?.nbChecks == null ? '' : String(jouee.nbChecks),
+        temps: jouee?.tempsFinalSecs == null ? '' : formaterTemps(jouee.tempsFinalSecs),
+      }
+    })
+  })
+
   return {
     date: match.date.split('T')[0],
     type: match.type,
     equipeAId: ids[0] ?? null,
     equipeBId: ids[1] ?? null,
-    lignes: match.equipes.flatMap((resultat) =>
-      resultat.lignes.map((ligne) => ({
-        joueurId: ligne.joueurId,
-        joueurNom: ligne.joueurNom,
-        equipeId: resultat.equipeId ?? 0,
-        equipeNom:
-          equipes.find((equipe) => equipe.id === resultat.equipeId)?.nom ?? resultat.equipeNom,
-        jeuId: ligne.jeuId,
-        seed: ligne.seed ?? '',
-        totalChecks: ligne.totalChecks === null ? '' : String(ligne.totalChecks),
-        nbChecks: ligne.nbChecks === null ? '' : String(ligne.nbChecks),
-        temps: ligne.tempsFinalSecs === null ? '' : formaterTemps(ligne.tempsFinalSecs),
-      })),
-    ),
+    lignes,
   }
 }
 
 /**
- * Quatre lignes vides pour les membres des deux equipes, en conservant la saisie deja faite
- * pour les joueurs qui restent dans le match.
+ * Une ligne par membre des deux rosters, en conservant la saisie deja faite pour les joueurs
+ * qui restent dans le match. Les deux premiers de chaque roster sont coches par defaut, le
+ * format qualification etant le plus courant.
  */
 function construireLignes(
   equipes: Equipe[],
@@ -433,11 +493,12 @@ function construireLignes(
 
   return [equipeA, equipeB]
     .flatMap((equipe) =>
-      [equipe.joueur1, equipe.joueur2].map((joueur) => ({
+      equipe.membres.map((joueur, rang) => ({
         joueurId: joueur.id,
         joueurNom: joueur.nom,
         equipeId: equipe.id,
         equipeNom: equipe.nom,
+        participe: rang < MIN_PARTICIPANTS,
         jeuId: null,
         seed: '',
         totalChecks: '',

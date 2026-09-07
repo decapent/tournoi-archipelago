@@ -18,8 +18,7 @@ public class StatsService(TournoiDbContext db)
         CancellationToken annulation = default)
     {
         var equipes = await db.Equipes
-            .Include(e => e.Joueur1)
-            .Include(e => e.Joueur2)
+            .Include(e => e.Membres)
             .AsNoTracking()
             .ToListAsync(annulation);
 
@@ -80,17 +79,17 @@ public class StatsService(TournoiDbContext db)
                 .OrderByDescending(l => l.Cumul.MatchsJoues > 0)
                 .ThenBy(l => l.Cumul.MatchsJoues > 0 ? l.Cumul.TempsCumuleSecs : int.MaxValue)
                 .ThenByDescending(l => l.Cumul.Victoires)
-                .ThenBy(l => ScoringService.NomEquipe(l.Equipe), StringComparer.OrdinalIgnoreCase)
+                .ThenBy(l => l.Equipe.Nom, StringComparer.OrdinalIgnoreCase)
             : lignes
                 .OrderByDescending(l => l.Cumul.MatchsJoues > 0)
                 .ThenByDescending(l => l.Cumul.Victoires)
                 .ThenBy(l => l.Cumul.MatchsJoues > 0 ? l.Cumul.TempsCumuleSecs : int.MaxValue)
-                .ThenBy(l => ScoringService.NomEquipe(l.Equipe), StringComparer.OrdinalIgnoreCase);
+                .ThenBy(l => l.Equipe.Nom, StringComparer.OrdinalIgnoreCase);
 
         return [.. ordonnees.Select((l, index) => new ClassementEquipeDto(
             Position: index + 1,
             EquipeId: l.Equipe.Id,
-            EquipeNom: ScoringService.NomEquipe(l.Equipe),
+            EquipeNom: l.Equipe.Nom,
             MatchsJoues: l.Cumul.MatchsJoues,
             Victoires: l.Cumul.Victoires,
             TempsCumuleSecs: l.Cumul.TempsCumuleSecs,

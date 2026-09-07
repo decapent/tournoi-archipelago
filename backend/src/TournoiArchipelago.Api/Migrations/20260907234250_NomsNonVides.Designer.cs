@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TournoiArchipelago.Api.Data;
 
@@ -11,9 +12,11 @@ using TournoiArchipelago.Api.Data;
 namespace TournoiArchipelago.Api.Migrations
 {
     [DbContext(typeof(TournoiDbContext))]
-    partial class TournoiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907234250_NomsNonVides")]
+    partial class NomsNonVides
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder

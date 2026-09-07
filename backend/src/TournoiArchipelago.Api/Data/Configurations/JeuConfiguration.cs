@@ -8,7 +8,7 @@ public class JeuConfiguration : IEntityTypeConfiguration<Jeu>
 {
     public void Configure(EntityTypeBuilder<Jeu> builder)
     {
-        builder.ToTable("Jeu");
+        builder.ToTable("Jeu", t => t.HasCheckConstraint("CK_Jeu_nom_non_vide", "[nom] <> ''"));
         builder.HasKey(j => j.Id).HasName("PK_Jeu");
 
         builder.Property(j => j.Id).HasColumnName("id");

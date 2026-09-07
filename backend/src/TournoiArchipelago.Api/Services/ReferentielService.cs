@@ -68,11 +68,11 @@ public class ReferentielService(TournoiDbContext db)
                 "Ce joueur a des resultats enregistres : supprimer d'abord les matchs concernes.");
         }
 
-        if (await db.Equipes.AnyAsync(e => e.Joueur1Id == id || e.Joueur2Id == id, annulation))
+        if (await db.EquipeJoueurs.AnyAsync(ej => ej.JoueurId == id, annulation))
         {
             throw new RequeteInvalideException(
                 "id",
-                "Ce joueur fait partie d'une equipe : supprimer d'abord l'equipe.");
+                "Ce joueur fait partie d'une equipe : le retirer du roster avant de le supprimer.");
         }
 
         db.Joueurs.Remove(joueur);

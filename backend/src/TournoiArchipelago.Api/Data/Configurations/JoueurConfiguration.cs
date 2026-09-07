@@ -8,7 +8,7 @@ public class JoueurConfiguration : IEntityTypeConfiguration<Joueur>
 {
     public void Configure(EntityTypeBuilder<Joueur> builder)
     {
-        builder.ToTable("Joueur");
+        builder.ToTable("Joueur", t => t.HasCheckConstraint("CK_Joueur_nom_non_vide", "[nom] <> ''"));
 
         // Le nom de contrainte existant est en minuscules, contrairement aux autres tables.
         builder.HasKey(j => j.Id).HasName("PK_joueur");

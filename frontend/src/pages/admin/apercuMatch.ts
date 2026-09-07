@@ -1,6 +1,10 @@
 import { analyserTemps } from '../../lib/format'
 import type { ResultatUpsert } from '../../api/types'
 
+/** Bornes imposees par l'API (MatchService.NbJoueursMin/MaxParEquipe). */
+export const MIN_PARTICIPANTS = 2
+export const MAX_PARTICIPANTS = 4
+
 /** Une ligne du formulaire de saisie : les champs restent des chaines tant qu on edite. */
 export interface LigneSaisie {
   joueurId: number
@@ -8,6 +12,11 @@ export interface LigneSaisie {
   /** Equipe a laquelle le joueur appartient, pour le regroupement de l apercu. */
   equipeId: number
   equipeNom: string
+  /**
+   * Faux pour un membre du roster qui ne joue pas ce match. Le format decoule de ce choix :
+   * deux participants par equipe en qualification, trois en demi-finale, quatre en finale.
+   */
+  participe: boolean
   jeuId: number | null
   seed: string
   totalChecks: string
@@ -30,13 +39,13 @@ export interface ApercuEquipe {
 
 /**
  * Reproduit le classement du backend (ScoringService) pour donner un apercu avant l envoi :
- * somme des temps du duo, le plus petit total gagne, et un abandon passe apres toutes les
- * equipes completes, departage par checks trouves.
+ * somme des temps des participants, le plus petit total gagne, et un abandon passe apres
+ * toutes les equipes completes, departage par checks trouves.
  */
 export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
   const groupes = new Map<number, LigneSaisie[]>()
 
-  for (const ligne of lignes) {
+  for (const ligne of lignes.filter((l) => l.participe)) {
     const existantes = groupes.get(ligne.equipeId)
     if (existantes === undefined) {
       groupes.set(ligne.equipeId, [ligne])
@@ -105,7 +114,7 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
 export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] | null {
   const resultats: ResultatUpsert[] = []
 
-  for (const ligne of lignes) {
+  for (const ligne of lignes.filter((l) => l.participe)) {
     if (ligne.jeuId === null) {
       return null
     }
@@ -131,8 +140,26 @@ export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] 
 /** Messages de validation locaux, pour eviter un aller-retour serveur evitable. */
 export function validerLignes(lignes: readonly LigneSaisie[]): string[] {
   const problemes: string[] = []
+  const participants = lignes.filter((l) => l.participe)
 
-  for (const ligne of lignes) {
+  const effectifs = new Map<string, number>()
+  for (const ligne of participants) {
+    effectifs.set(ligne.equipeNom, (effectifs.get(ligne.equipeNom) ?? 0) + 1)
+  }
+
+  // Meme regle que le backend : les deux equipes alignent autant de joueurs l une que l autre,
+  // entre deux et quatre.
+  const nombres = [...effectifs.values()]
+  if (new Set(nombres).size > 1) {
+    const detail = [...effectifs.entries()].map(([nom, n]) => `${n} pour ${nom}`).join(' contre ')
+    problemes.push(`Les deux equipes doivent aligner le meme nombre de joueurs : ${detail}.`)
+  } else if (nombres.length > 0 && (nombres[0] < MIN_PARTICIPANTS || nombres[0] > MAX_PARTICIPANTS)) {
+    problemes.push(
+      `Chaque equipe doit aligner entre ${MIN_PARTICIPANTS} et ${MAX_PARTICIPANTS} joueurs, ${nombres[0]} selectionne(s).`,
+    )
+  }
+
+  for (const ligne of participants) {
     if (ligne.jeuId === null) {
       problemes.push(`${ligne.joueurNom} : choisir un jeu.`)
     }

@@ -12,14 +12,17 @@ import {
 } from '../../api/hooks'
 import { Chargement, Erreur, Vide } from '../../components/Etats'
 
+/** Taille du roster imposee par l'API (EquipeService.TailleRoster). */
+const TAILLE_ROSTER = 4
+
 export function ReferentielPage() {
   return (
     <section className="space-y-8">
       <header>
         <h1 className="text-xl font-semibold">Joueurs, equipes et jeux</h1>
         <p className="text-texte-doux mt-1 text-sm">
-          Un joueur ne peut appartenir qu a une seule equipe : c est ce qui permet de regrouper
-          automatiquement les resultats d un match par duo.
+          Chaque equipe compte quatre joueurs. Un joueur ne peut appartenir qu a une seule
+          equipe : c est ce qui permet de regrouper automatiquement les resultats d un match.
         </p>
       </header>
 
@@ -94,8 +97,8 @@ function SectionEquipes() {
   const creer = useCreerEquipe()
   const supprimer = useSupprimerEquipe()
 
-  const [joueur1Id, setJoueur1Id] = useState<number | null>(null)
-  const [joueur2Id, setJoueur2Id] = useState<number | null>(null)
+  const [nom, setNom] = useState('')
+  const [selection, setSelection] = useState<number[]>([])
 
   // Un joueur deja engage dans une equipe ne peut pas en rejoindre une seconde.
   const disponibles = useMemo(() => {
@@ -103,54 +106,85 @@ function SectionEquipes() {
       return []
     }
 
-    const engages = new Set((equipes ?? []).flatMap((equipe) => [equipe.joueur1.id, equipe.joueur2.id]))
+    const engages = new Set((equipes ?? []).flatMap((equipe) => equipe.membres.map((m) => m.id)))
     return joueurs.filter((joueur) => !engages.has(joueur.id))
   }, [joueurs, equipes])
 
+  const complet = selection.length === TAILLE_ROSTER
+
+  function basculer(joueurId: number) {
+    setSelection((precedente) =>
+      precedente.includes(joueurId)
+        ? precedente.filter((id) => id !== joueurId)
+        : // On ne laisse pas depasser la taille du roster : plus clair qu un message d erreur.
+          precedente.length < TAILLE_ROSTER
+          ? [...precedente, joueurId]
+          : precedente,
+    )
+  }
+
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault()
-    if (joueur1Id === null || joueur2Id === null) {
-      return
-    }
-
-    await creer.mutateAsync({ joueur1Id, joueur2Id })
-    setJoueur1Id(null)
-    setJoueur2Id(null)
+    await creer.mutateAsync({ nom: nom.trim(), joueurIds: selection })
+    setNom('')
+    setSelection([])
   }
 
   return (
     <article>
       <h2 className="mb-2 font-semibold">Equipes</h2>
 
-      <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(evenement) => void ajouter(evenement)}>
-        <ChoixJoueur
-          libelle="Joueur 1"
-          joueurs={disponibles}
-          valeur={joueur1Id}
-          exclure={joueur2Id}
-          onChange={setJoueur1Id}
-        />
-        <ChoixJoueur
-          libelle="Joueur 2"
-          joueurs={disponibles}
-          valeur={joueur2Id}
-          exclure={joueur1Id}
-          onChange={setJoueur2Id}
-        />
-        <button
-          type="submit"
-          className="bouton"
-          disabled={creer.isPending || joueur1Id === null || joueur2Id === null}
-        >
+      <form className="panneau mb-3 space-y-3 p-4" onSubmit={(evenement) => void ajouter(evenement)}>
+        <label className="block">
+          <span className="etiquette mb-1 block">Nom de l equipe</span>
+          <input
+            className="champ w-72"
+            placeholder="Les Nous_"
+            value={nom}
+            onChange={(evenement) => setNom(evenement.target.value)}
+            required
+          />
+        </label>
+
+        <div>
+          <span className="etiquette mb-1 block">
+            Roster ({selection.length} / {TAILLE_ROSTER})
+          </span>
+
+          {disponibles.length === 0 ? (
+            <p className="text-texte-doux text-xs">
+              Tous les joueurs sont deja en equipe. Ajoute des joueurs pour former un nouveau
+              roster.
+            </p>
+          ) : (
+            <ul className="flex flex-wrap gap-2">
+              {disponibles.map((joueur) => {
+                const choisi = selection.includes(joueur.id)
+                return (
+                  <li key={joueur.id}>
+                    <button
+                      type="button"
+                      aria-pressed={choisi}
+                      className={`rounded border px-2.5 py-1 text-sm transition-colors ${
+                        choisi
+                          ? 'border-accent text-accent'
+                          : 'border-bordure text-texte-doux hover:text-texte'
+                      }`}
+                      onClick={() => basculer(joueur.id)}
+                    >
+                      {joueur.nom}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+
+        <button type="submit" className="bouton" disabled={creer.isPending || !complet}>
           Creer l equipe
         </button>
       </form>
-
-      {disponibles.length < 2 && (
-        <p className="text-texte-doux mb-3 text-xs">
-          Tous les joueurs sont deja en equipe. Ajoute des joueurs pour former un nouveau duo.
-        </p>
-      )}
 
       {error !== null && <Erreur erreur={error} />}
       {creer.error !== null && <Erreur erreur={creer.error} />}
@@ -161,18 +195,25 @@ function SectionEquipes() {
         (equipes.length === 0 ? (
           <Vide>Aucune equipe.</Vide>
         ) : (
-          <ul className="flex flex-wrap gap-2">
+          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {equipes.map((equipe) => (
-              <li key={equipe.id} className="panneau flex items-center gap-2 px-3 py-1.5 text-sm">
-                {equipe.nom}
-                <button
-                  type="button"
-                  className="text-texte-doux hover:text-alerte text-xs"
-                  title="Supprimer"
-                  onClick={() => void supprimer.mutateAsync(equipe.id)}
-                >
-                  ✕
-                </button>
+              <li key={equipe.id} className="panneau p-3">
+                <div className="mb-1 flex items-start justify-between gap-2">
+                  <span className="font-medium">{equipe.nom}</span>
+                  <button
+                    type="button"
+                    className="text-texte-doux hover:text-alerte text-xs"
+                    title="Supprimer"
+                    onClick={() => void supprimer.mutateAsync(equipe.id)}
+                  >
+                    &#10005;
+                  </button>
+                </div>
+                <ul className="text-texte-doux space-y-0.5 text-sm">
+                  {equipe.membres.map((membre) => (
+                    <li key={membre.id}>{membre.nom}</li>
+                  ))}
+                </ul>
               </li>
             ))}
           </ul>
@@ -233,42 +274,5 @@ function SectionJeux() {
         </ul>
       )}
     </article>
-  )
-}
-
-function ChoixJoueur({
-  libelle,
-  joueurs,
-  valeur,
-  exclure,
-  onChange,
-}: {
-  libelle: string
-  joueurs: { id: number; nom: string }[]
-  valeur: number | null
-  exclure: number | null
-  onChange: (id: number | null) => void
-}) {
-  return (
-    <label>
-      <span className="etiquette mb-1 block">{libelle}</span>
-      <select
-        className="champ w-44"
-        value={valeur ?? ''}
-        onChange={(evenement) =>
-          onChange(evenement.target.value === '' ? null : Number(evenement.target.value))
-        }
-        required
-      >
-        <option value="">Choisir...</option>
-        {joueurs
-          .filter((joueur) => joueur.id !== exclure)
-          .map((joueur) => (
-            <option key={joueur.id} value={joueur.id}>
-              {joueur.nom}
-            </option>
-          ))}
-      </select>
-    </label>
   )
 }

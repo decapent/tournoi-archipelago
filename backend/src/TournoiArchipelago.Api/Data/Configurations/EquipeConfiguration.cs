@@ -8,32 +8,20 @@ public class EquipeConfiguration : IEntityTypeConfiguration<Equipe>
 {
     public void Configure(EntityTypeBuilder<Equipe> builder)
     {
-        builder.ToTable("Equipe", t => t.HasCheckConstraint(
-            "CK_Equipe_membres_distincts",
-            "[joueur1_id] <> [joueur2_id]"));
-
+        // Le nom vide n'est pas representable : EF ajoute un DEFAULT N'' en creant la
+        // colonne, ce qui a suffi a laisser subsister une equipe sans nom.
+        builder.ToTable("Equipe", t => t.HasCheckConstraint("CK_Equipe_nom_non_vide", "[nom] <> ''"));
         builder.HasKey(e => e.Id).HasName("PK_Equipe");
 
         builder.Property(e => e.Id).HasColumnName("id").ValueGeneratedOnAdd();
-        builder.Property(e => e.Joueur1Id).HasColumnName("joueur1_id");
-        builder.Property(e => e.Joueur2Id).HasColumnName("joueur2_id");
 
-        builder.HasOne(e => e.Joueur1)
-            .WithMany()
-            .HasForeignKey(e => e.Joueur1Id)
-            .HasConstraintName("FK_Equipe_Joueur1")
-            .OnDelete(DeleteBehavior.NoAction);
+        builder.Property(e => e.Nom)
+            .HasColumnName("nom")
+            .HasMaxLength(100)
+            .IsRequired();
 
-        builder.HasOne(e => e.Joueur2)
-            .WithMany()
-            .HasForeignKey(e => e.Joueur2Id)
-            .HasConstraintName("FK_Equipe_Joueur2")
-            .OnDelete(DeleteBehavior.NoAction);
-
-        // Les identifiants sont normalises (le plus petit dans joueur1_id) par EquipeService,
-        // ce qui permet a cet index d'attraper aussi les duos saisis dans l'ordre inverse.
-        builder.HasIndex(e => new { e.Joueur1Id, e.Joueur2Id })
-            .HasDatabaseName("UQ_Equipe_joueurs")
+        builder.HasIndex(e => e.Nom)
+            .HasDatabaseName("UQ_Equipe_nom")
             .IsUnique();
 
         builder.Ignore(e => e.MembreIds);

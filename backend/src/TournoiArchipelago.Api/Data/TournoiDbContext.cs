@@ -11,6 +11,8 @@ public class TournoiDbContext(DbContextOptions<TournoiDbContext> options) : DbCo
 
     public DbSet<Equipe> Equipes => Set<Equipe>();
 
+    public DbSet<EquipeJoueur> EquipeJoueurs => Set<EquipeJoueur>();
+
     public DbSet<Match> Matchs => Set<Match>();
 
     public DbSet<MatchJeu> MatchJeux => Set<MatchJeu>();

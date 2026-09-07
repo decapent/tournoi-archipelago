@@ -12,8 +12,9 @@ Outil de saisie et de statistiques pour un petit tournoi amical d'Archipelago
 
 | Sujet | Règle |
 |---|---|
-| Format d'un match | Deux équipes de deux joueurs, soit **quatre résultats** (un par joueur) |
-| Score d'une équipe | **Somme des temps de complétion de ses deux joueurs** ; le plus petit total gagne |
+| Roster | Chaque équipe compte **quatre joueurs** ; un joueur n'appartient qu'à une seule équipe |
+| Format d'un match | Toujours **deux équipes**, avec **2 participants** par équipe en qualification, **3** en demi-finale, **4** en finale. Le format n'est pas configuré : il se déduit des lignes saisies, la seule exigence étant que les deux équipes alignent autant de joueurs l'une que l'autre |
+| Score d'une équipe | **Somme des temps de complétion de ses participants** ; le plus petit total gagne |
 | Abandon (DNF) | Temps laissé vide. L'équipe passe après toutes les équipes complètes, les abandons étant départagés par le nombre de checks trouvés |
 | Égalité parfaite | Les deux équipes partagent la première place et comptent chacune une victoire |
 | Type de match | `QUALIFICATION` ou `TOURNOI` |
@@ -25,8 +26,9 @@ Le formulaire de saisie en affiche un aperçu en direct via
 [`apercuMatch.ts`](frontend/src/pages/admin/apercuMatch.ts), qui reproduit le même classement.
 
 > **Contrainte du modèle** — la table `Equipe` n'a pas de lien vers `Match` : le regroupement des
-> lignes `MatchJeu` en équipes se déduit de l'appartenance des joueurs. Un joueur ne peut donc
-> appartenir qu'à **une seule équipe**, ce que l'API refuse activement.
+> lignes `MatchJeu` en équipes se déduit de l'appartenance des joueurs, portée par la table de
+> liaison `EquipeJoueur`. Un joueur ne peut donc appartenir qu'à **une seule équipe**, garanti par
+> un index unique sur `EquipeJoueur.joueur_id`.
 
 ## Prérequis
 
@@ -69,9 +71,25 @@ dotnet tool restore
 dotnet ef database update --project src/TournoiArchipelago.Api
 ```
 
-La seconde migration, `AjoutNbChecksEtAjustements`, ajoute `nb_checks`, convertit
-`temps_final_secs` de `time` en `int` (secondes), passe `Equipe.id` en `IDENTITY`, resserre les
-colonnes `nvarchar(max)`, ajoute les contraintes d'unicité et sème une douzaine de jeux.
+Les migrations suivantes :
+
+- `AjoutNbChecksEtAjustements` — ajoute `nb_checks`, convertit `temps_final_secs` de `time` en
+  `int` (secondes), passe `Equipe.id` en `IDENTITY`, resserre les colonnes `nvarchar(max)`,
+  ajoute les contraintes d'unicité et sème une douzaine de jeux ;
+- `EquipesDeQuatreJoueursAvecNom` — remplace `Equipe.joueur1_id` / `joueur2_id` par la table de
+  liaison `EquipeJoueur`, et ajoute `Equipe.nom` ;
+- `NomsNonVides` — interdit un nom vide sur `Joueur`, `Jeu` et `Equipe`.
+
+### 2b. Seed des équipes
+
+Les huit équipes du tournoi et leurs trente-deux joueurs :
+
+```sh
+sqlcmd -S localhost -E -b -d Archipelago -i db/seed-equipes.sql
+```
+
+Le script est idempotent, et refuse de s'exécuter si un joueur de la liste appartient déjà à une
+autre équipe. Aucun match n'est touché.
 
 ### 3. Développement
 
@@ -110,9 +128,9 @@ Les lectures sont publiques ; toutes les écritures exigent un jeton obtenu via
 |---|---|---|
 | `POST` | `/api/auth/login` | Ouvre une session d'admin, renvoie un JWT (8 h) |
 | `GET` | `/api/auth/me` | Vérifie la validité du jeton |
-| `GET`/`POST`/`PUT`/`DELETE` | `/api/joueurs`, `/api/jeux`, `/api/equipes` | Référentiel |
+| `GET`/`POST`/`PUT`/`DELETE` | `/api/joueurs`, `/api/jeux`, `/api/equipes` | Référentiel (une équipe se crée avec un `nom` et quatre `joueurIds`) |
 | `GET` | `/api/matchs?type=&du=&au=` | Historique, du plus récent au plus ancien |
-| `GET` | `/api/matchs/{id}` | Détail : quatre résultats et classement des deux équipes |
+| `GET` | `/api/matchs/{id}` | Détail : résultats et classement des deux équipes |
 | `POST` | `/api/matchs` | Enregistre un match complet, en transaction |
 | `PUT`/`DELETE` | `/api/matchs/{id}` | Correction / suppression |
 | `GET` | `/api/stats/classement?type=&tri=` | Classement général par équipe (`tri` : `Victoires` ou `Temps`) |
@@ -143,5 +161,5 @@ frontend/src/
   lib/format.ts    conversions secondes ↔ hh:mm:ss, pourcentages
   pages/           classement, stats par jeu, matchs, détail
   pages/admin/     connexion, saisie de match, référentiel
-db/                setup-login.sql, baseline.sql
+db/                setup-login.sql, baseline.sql, seed-equipes.sql
 ```

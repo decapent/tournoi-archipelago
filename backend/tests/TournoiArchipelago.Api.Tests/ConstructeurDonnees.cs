@@ -9,13 +9,17 @@ internal static class ConstructeurDonnees
 
     public static Jeu Jeu(int id, string nom) => new() { Id = id, Nom = nom };
 
-    public static Equipe Equipe(int id, Joueur joueur1, Joueur joueur2) => new()
+    /// <summary>Equipe portant un nom et un roster, sans passer par la base.</summary>
+    public static Equipe Equipe(int id, string nom, params Joueur[] membres) => new()
     {
         Id = id,
-        Joueur1Id = joueur1.Id,
-        Joueur2Id = joueur2.Id,
-        Joueur1 = joueur1,
-        Joueur2 = joueur2,
+        Nom = nom,
+        Membres = [.. membres.Select(joueur => new EquipeJoueur
+        {
+            EquipeId = id,
+            JoueurId = joueur.Id,
+            Joueur = joueur,
+        })],
     };
 
     public static MatchJeu Ligne(

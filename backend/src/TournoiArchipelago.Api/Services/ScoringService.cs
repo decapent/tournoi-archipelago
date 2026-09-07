@@ -7,10 +7,13 @@ namespace TournoiArchipelago.Api.Services;
 /// Regroupe les lignes d'un match par equipe et les classe.
 ///
 /// C'est le seul endroit ou vit la regle de classement :
-///   1. le score d'une equipe est la somme des <c>temps_final_secs</c> de ses deux joueurs ;
+///   1. le score d'une equipe est la somme des <c>temps_final_secs</c> de ses participants ;
 ///   2. le plus petit total gagne ;
-///   3. une equipe dont au moins un joueur a abandonne (temps nul) passe apres toutes les
-///      equipes complettes, et les abandons sont departages par nombre de checks trouves.
+///   3. une equipe dont au moins un participant a abandonne (temps nul) passe apres toutes
+///      les equipes complettes, et les abandons sont departages par nombre de checks trouves.
+///
+/// Le nombre de participants par equipe n'est pas fixe : il se deduit des lignes saisies
+/// (deux en qualification, trois en demi-finale, quatre en finale).
 ///
 /// En cas d'egalite parfaite, les equipes partagent la meme position et comptent chacune
 /// une victoire.
@@ -18,10 +21,6 @@ namespace TournoiArchipelago.Api.Services;
 public static class ScoringService
 {
     public const string NomEquipeInconnue = "Sans equipe";
-
-    /// <summary>Libelle d'une equipe, derive du nom de ses deux membres.</summary>
-    public static string NomEquipe(Equipe equipe) =>
-        $"{equipe.Joueur1?.Nom ?? $"#{equipe.Joueur1Id}"} & {equipe.Joueur2?.Nom ?? $"#{equipe.Joueur2Id}"}";
 
     /// <summary>
     /// Classe les equipes presentes dans un match. Les navigations <c>Joueur</c> et <c>Jeu</c>
@@ -34,8 +33,10 @@ public static class ScoringService
         var equipeParJoueur = new Dictionary<int, Equipe>();
         foreach (var equipe in equipes)
         {
-            equipeParJoueur[equipe.Joueur1Id] = equipe;
-            equipeParJoueur[equipe.Joueur2Id] = equipe;
+            foreach (var joueurId in equipe.MembreIds)
+            {
+                equipeParJoueur[joueurId] = equipe;
+            }
         }
 
         var groupes = lignes
@@ -110,7 +111,7 @@ public static class ScoringService
 
         return new GroupeEquipe(
             EquipeId: equipe?.Id,
-            Nom: equipe is null ? NomEquipeInconnue : NomEquipe(equipe),
+            Nom: equipe?.Nom ?? NomEquipeInconnue,
             EstAbandon: estAbandon,
             TempsTotalSecs: tempsTotal,
             ChecksTrouves: checksTrouves,

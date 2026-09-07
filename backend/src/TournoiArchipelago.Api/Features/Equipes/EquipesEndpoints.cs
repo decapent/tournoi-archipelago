@@ -11,7 +11,7 @@ public static class EquipesEndpoints
 
         groupe.MapGet("/", (EquipeService service, CancellationToken annulation) =>
             service.ListerAsync(annulation))
-        .WithSummary("Liste les equipes avec leurs deux membres.");
+        .WithSummary("Liste les equipes avec leur roster.");
 
         groupe.MapGet("/{id:int}", async (
             int id,
@@ -34,7 +34,7 @@ public static class EquipesEndpoints
             return Results.Created($"/api/equipes/{equipe.Id}", equipe);
         })
         .RequireAuthorization()
-        .WithSummary("Cree une equipe. Un joueur ne peut appartenir qu'a une seule equipe.")
+        .WithSummary("Cree une equipe de quatre joueurs. Un joueur ne peut appartenir qu'a une seule equipe.")
         .Produces<EquipeDto>(StatusCodes.Status201Created)
         .ProducesValidationProblem();
 
@@ -48,7 +48,7 @@ public static class EquipesEndpoints
             return equipe is null ? Results.NotFound() : Results.Ok(equipe);
         })
         .RequireAuthorization()
-        .WithSummary("Change les membres d'une equipe.")
+        .WithSummary("Renomme une equipe ou change son roster.")
         .Produces<EquipeDto>()
         .ProducesProblem(StatusCodes.Status404NotFound)
         .ProducesValidationProblem();
@@ -62,7 +62,7 @@ public static class EquipesEndpoints
             return supprime ? Results.NoContent() : Results.NotFound();
         })
         .RequireAuthorization()
-        .WithSummary("Supprime une equipe.")
+        .WithSummary("Supprime une equipe, si aucun de ses membres n'a de resultat.")
         .Produces(StatusCodes.Status204NoContent)
         .ProducesProblem(StatusCodes.Status404NotFound);
     }

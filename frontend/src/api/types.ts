@@ -18,10 +18,9 @@ export interface Jeu {
 
 export interface Equipe {
   id: number
-  /** Libelle derive des deux membres, par exemple « Alice & Bob ». */
   nom: string
-  joueur1: Joueur
-  joueur2: Joueur
+  /** Roster de quatre joueurs, dont 2 a 4 participent selon l'etape. */
+  membres: Joueur[]
 }
 
 export interface LigneResultat {

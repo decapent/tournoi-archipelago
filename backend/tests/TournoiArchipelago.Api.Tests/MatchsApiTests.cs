@@ -79,11 +79,11 @@ public class MatchsApiTests
 
         // Le match remonte aussi dans l'historique et dans le classement.
         var historique = await client.GetFromJsonAsync<List<MatchSommaireDto>>("/api/matchs", ApiDeTest.Json);
-        Assert.Equal("Alice & Bob", Assert.Single(historique!).EquipeGagnanteNom);
+        Assert.Equal("Les Nous_", Assert.Single(historique!).EquipeGagnanteNom);
 
         var classement = await client.GetFromJsonAsync<List<ClassementEquipeDto>>(
             "/api/stats/classement", ApiDeTest.Json);
-        Assert.Equal(1, classement!.Single(l => l.EquipeNom == "Alice & Bob").Victoires);
+        Assert.Equal(1, classement!.Single(l => l.EquipeNom == "Les Nous_").Victoires);
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public class MatchsApiTests
     }
 
     [Fact]
-    public async Task Un_match_avec_moins_de_quatre_resultats_est_refuse()
+    public async Task Un_match_avec_un_seul_joueur_par_equipe_est_refuse()
     {
         using var api = new ApiDeTest();
         var client = await api.CreerClientAdminAsync();
@@ -133,13 +133,14 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
+                // Un seul joueur de chaque cote : sous le minimum du format qualification.
                 new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Chloe.Id, plateau.Metroid.Id, null, null, null, 100),
             ]),
             ApiDeTest.Json);
 
         Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
-        Assert.Contains("exactement 4 resultats", await reponse.Content.ReadAsStringAsync());
+        Assert.Contains("entre 2 et 4 joueurs", await reponse.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -167,9 +168,9 @@ public class MatchsApiTests
 
         Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
 
-        var corps = await reponse.Content.ReadAsStringAsync();
-        Assert.Contains("ne font pas partie des deux equipes", corps);
-        Assert.Contains("Resultat manquant", corps);
+        Assert.Contains(
+            "ne font pas partie des deux equipes",
+            await reponse.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -230,30 +231,169 @@ public class MatchsApiTests
         var plateau = await PreparerPlateauAsync(api, client);
 
         var eve = await CreerJoueurAsync(client, "Eve");
+        var frank = await CreerJoueurAsync(client, "Frank");
+        var gina = await CreerJoueurAsync(client, "Gina");
 
+        // Alice appartient deja a l'equipe A.
         var reponse = await client.PostAsJsonAsync(
             "/api/equipes",
-            new EquipeUpsertRequest(plateau.Alice.Id, eve.Id),
+            new EquipeUpsertRequest("O.J.M.I.", [plateau.Alice.Id, eve.Id, frank.Id, gina.Id]),
             ApiDeTest.Json);
 
         Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
-        Assert.Contains("une seule equipe", await reponse.Content.ReadAsStringAsync());
+        Assert.Contains(
+            "fait deja partie de l'equipe Les Nous_",
+            await reponse.Content.ReadAsStringAsync());
     }
 
     [Fact]
-    public async Task Une_equipe_de_deux_fois_le_meme_joueur_est_refusee()
+    public async Task Un_roster_incomplet_est_refuse()
     {
         using var api = new ApiDeTest();
         var client = await api.CreerClientAdminAsync();
         var alice = await CreerJoueurAsync(client, "Alice");
+        var bob = await CreerJoueurAsync(client, "Bob");
 
         var reponse = await client.PostAsJsonAsync(
             "/api/equipes",
-            new EquipeUpsertRequest(alice.Id, alice.Id),
+            new EquipeUpsertRequest("4G0L", [alice.Id, bob.Id]),
             ApiDeTest.Json);
 
         Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
-        Assert.Contains("deux joueurs differents", await reponse.Content.ReadAsStringAsync());
+        Assert.Contains("exactement 4 joueurs distincts", await reponse.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Un_roster_avec_un_joueur_en_double_est_refuse()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var alice = await CreerJoueurAsync(client, "Alice");
+        var bob = await CreerJoueurAsync(client, "Bob");
+        var chloe = await CreerJoueurAsync(client, "Chloe");
+
+        // Les doublons sont dedupliques : il ne reste que trois joueurs distincts.
+        var reponse = await client.PostAsJsonAsync(
+            "/api/equipes",
+            new EquipeUpsertRequest("4G0L", [alice.Id, bob.Id, chloe.Id, alice.Id]),
+            ApiDeTest.Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
+        Assert.Contains("exactement 4 joueurs distincts", await reponse.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Deux_equipes_ne_peuvent_pas_porter_le_meme_nom()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var plateau = await PreparerPlateauAsync(api, client);
+
+        var membres = new List<int>();
+        foreach (var nom in new[] { "Eve", "Frank", "Gina", "Hugo" })
+        {
+            membres.Add((await CreerJoueurAsync(client, nom)).Id);
+        }
+
+        var reponse = await client.PostAsJsonAsync(
+            "/api/equipes",
+            new EquipeUpsertRequest(plateau.EquipeA.Nom, membres),
+            ApiDeTest.Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
+        Assert.Contains("porte deja le nom", await reponse.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Un_match_de_finale_aligne_quatre_joueurs_par_equipe()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var plateau = await PreparerPlateauAsync(api, client);
+
+        var reponse = await client.PostAsJsonAsync("/api/matchs", new MatchUpsertRequest(
+            Date: new DateOnly(2026, 10, 1),
+            Type: TypeMatch.TOURNOI,
+            EquipeAId: plateau.EquipeA.Id,
+            EquipeBId: plateau.EquipeB.Id,
+            Resultats:
+            [
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Arthur.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
+                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200),
+                new(plateau.Damien.Id, plateau.Metroid.Id, null, null, null, 200),
+            ]),
+            ApiDeTest.Json);
+
+        reponse.EnsureSuccessStatusCode();
+        var match = await reponse.Content.ReadFromJsonAsync<MatchDetailDto>(ApiDeTest.Json);
+
+        var gagnante = match!.Equipes.Single(e => e.EstGagnante);
+        Assert.Equal(plateau.EquipeA.Id, gagnante.EquipeId);
+        Assert.Equal(4, gagnante.Lignes.Count);
+        Assert.Equal(400, gagnante.TempsTotalSecs);
+        Assert.Equal(800, match.Equipes.Single(e => !e.EstGagnante).TempsTotalSecs);
+    }
+
+    [Fact]
+    public async Task Un_match_de_demi_finale_aligne_trois_joueurs_par_equipe()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var plateau = await PreparerPlateauAsync(api, client);
+
+        var reponse = await client.PostAsJsonAsync("/api/matchs", new MatchUpsertRequest(
+            Date: new DateOnly(2026, 9, 20),
+            Type: TypeMatch.TOURNOI,
+            EquipeAId: plateau.EquipeA.Id,
+            EquipeBId: plateau.EquipeB.Id,
+            Resultats:
+            [
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
+                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200),
+            ]),
+            ApiDeTest.Json);
+
+        reponse.EnsureSuccessStatusCode();
+        var match = await reponse.Content.ReadFromJsonAsync<MatchDetailDto>(ApiDeTest.Json);
+
+        Assert.All(match!.Equipes, equipe => Assert.Equal(3, equipe.Lignes.Count));
+        Assert.Equal(300, match.Equipes.Single(e => e.EstGagnante).TempsTotalSecs);
+    }
+
+    [Fact]
+    public async Task Un_match_ou_les_equipes_n_alignent_pas_le_meme_nombre_de_joueurs_est_refuse()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var plateau = await PreparerPlateauAsync(api, client);
+
+        var reponse = await client.PostAsJsonAsync("/api/matchs", new MatchUpsertRequest(
+            Date: new DateOnly(2026, 10, 2),
+            Type: TypeMatch.TOURNOI,
+            EquipeAId: plateau.EquipeA.Id,
+            EquipeBId: plateau.EquipeB.Id,
+            Resultats:
+            [
+                // Trois joueurs d'un cote, deux de l'autre.
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
+            ]),
+            ApiDeTest.Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
+        Assert.Contains("le meme nombre de joueurs", await reponse.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -374,29 +514,43 @@ public class MatchsApiTests
         return (await reponse.Content.ReadFromJsonAsync<JoueurDto>(ApiDeTest.Json))!;
     }
 
-    /// <summary>Quatre joueurs, deux equipes et deux jeux, via les endpoints publics.</summary>
+    /// <summary>
+    /// Deux equipes de quatre joueurs et deux jeux, via les endpoints publics. Les matchs de
+    /// test n'alignent que les deux premiers joueurs de chaque roster (format qualification).
+    /// </summary>
     private static async Task<Plateau> PreparerPlateauAsync(ApiDeTest api, HttpClient client)
     {
         var alice = await CreerJoueurAsync(client, "Alice");
         var bob = await CreerJoueurAsync(client, "Bob");
+        var anna = await CreerJoueurAsync(client, "Anna");
+        var arthur = await CreerJoueurAsync(client, "Arthur");
+
         var chloe = await CreerJoueurAsync(client, "Chloe");
         var david = await CreerJoueurAsync(client, "David");
+        var claire = await CreerJoueurAsync(client, "Claire");
+        var damien = await CreerJoueurAsync(client, "Damien");
 
-        var equipeA = await CreerEquipeAsync(client, alice.Id, bob.Id);
-        var equipeB = await CreerEquipeAsync(client, chloe.Id, david.Id);
+        var equipeA = await CreerEquipeAsync(client, "Les Nous_", alice, bob, anna, arthur);
+        var equipeB = await CreerEquipeAsync(client, "No M's Land", chloe, david, claire, damien);
 
         var jeux = await client.GetFromJsonAsync<List<JeuDto>>("/api/jeux", ApiDeTest.Json);
         var alttp = jeux!.Single(j => j.Nom == "A Link to the Past");
         var metroid = jeux.Single(j => j.Nom == "Super Metroid");
 
-        return new Plateau(alice, bob, chloe, david, equipeA, equipeB, alttp, metroid);
+        return new Plateau(
+            alice, bob, anna, arthur,
+            chloe, david, claire, damien,
+            equipeA, equipeB, alttp, metroid);
     }
 
-    private static async Task<EquipeDto> CreerEquipeAsync(HttpClient client, int joueur1Id, int joueur2Id)
+    private static async Task<EquipeDto> CreerEquipeAsync(
+        HttpClient client,
+        string nom,
+        params JoueurDto[] membres)
     {
         var reponse = await client.PostAsJsonAsync(
             "/api/equipes",
-            new EquipeUpsertRequest(joueur1Id, joueur2Id),
+            new EquipeUpsertRequest(nom, [.. membres.Select(j => j.Id)]),
             ApiDeTest.Json);
 
         reponse.EnsureSuccessStatusCode();
@@ -406,8 +560,12 @@ public class MatchsApiTests
     private sealed record Plateau(
         JoueurDto Alice,
         JoueurDto Bob,
+        JoueurDto Anna,
+        JoueurDto Arthur,
         JoueurDto Chloe,
         JoueurDto David,
+        JoueurDto Claire,
+        JoueurDto Damien,
         EquipeDto EquipeA,
         EquipeDto EquipeB,
         JeuDto Alttp,

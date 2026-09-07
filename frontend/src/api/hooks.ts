@@ -168,15 +168,34 @@ export function useSupprimerJeu() {
   })
 }
 
+export interface EquipeSaisie {
+  nom: string
+  joueurIds: number[]
+}
+
 export function useCreerEquipe() {
   const cache = useQueryClient()
 
   return useMutation({
-    mutationFn: ({ joueur1Id, joueur2Id }: { joueur1Id: number; joueur2Id: number }) =>
-      appelerApi<Equipe>('/equipes', { methode: 'POST', corps: { joueur1Id, joueur2Id } }),
+    mutationFn: (equipe: EquipeSaisie) =>
+      appelerApi<Equipe>('/equipes', { methode: 'POST', corps: equipe }),
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: cles.equipes })
       void cache.invalidateQueries({ queryKey: ['classement'] })
+    },
+  })
+}
+
+export function useModifierEquipe() {
+  const cache = useQueryClient()
+
+  return useMutation({
+    mutationFn: ({ id, ...equipe }: EquipeSaisie & { id: number }) =>
+      appelerApi<Equipe>(`/equipes/${id}`, { methode: 'PUT', corps: equipe }),
+    onSuccess: () => {
+      void cache.invalidateQueries({ queryKey: cles.equipes })
+      void cache.invalidateQueries({ queryKey: ['classement'] })
+      void cache.invalidateQueries({ queryKey: ['matchs'] })
     },
   })
 }

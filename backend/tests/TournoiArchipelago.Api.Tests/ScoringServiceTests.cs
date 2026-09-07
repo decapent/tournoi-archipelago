@@ -13,8 +13,8 @@ public class ScoringServiceTests
     private static readonly Api.Domain.Jeu Alttp = Jeu(1, "A Link to the Past");
     private static readonly Api.Domain.Jeu Metroid = Jeu(2, "Super Metroid");
 
-    private static readonly Api.Domain.Equipe EquipeA = Equipe(10, Alice, Bob);
-    private static readonly Api.Domain.Equipe EquipeB = Equipe(20, Chloe, David);
+    private static readonly Api.Domain.Equipe EquipeA = Equipe(10, "Les Nous_", Alice, Bob);
+    private static readonly Api.Domain.Equipe EquipeB = Equipe(20, "No M's Land", Chloe, David);
 
     [Fact]
     public void Le_total_le_plus_faible_gagne()
@@ -57,8 +57,8 @@ public class ScoringServiceTests
             [EquipeA, EquipeB]);
 
         Assert.All(classement, equipe => Assert.Equal(2, equipe.Lignes.Count));
-        Assert.Equal("Alice & Bob", classement.Single(e => e.EquipeId == EquipeA.Id).EquipeNom);
-        Assert.Equal("Chloe & David", classement.Single(e => e.EquipeId == EquipeB.Id).EquipeNom);
+        Assert.Equal("Les Nous_", classement.Single(e => e.EquipeId == EquipeA.Id).EquipeNom);
+        Assert.Equal("No M's Land", classement.Single(e => e.EquipeId == EquipeB.Id).EquipeNom);
     }
 
     [Fact]
@@ -199,11 +199,59 @@ public class ScoringServiceTests
     }
 
     [Fact]
-    public void Le_nom_d_equipe_retombe_sur_l_identifiant_quand_le_joueur_n_est_pas_charge()
+    public void Le_classement_s_adapte_a_trois_joueurs_par_equipe()
     {
-        var equipeSansNavigation = new Api.Domain.Equipe { Id = 99, Joueur1Id = 7, Joueur2Id = 8 };
+        var eve = Joueur(5, "Eve");
+        var frank = Joueur(6, "Frank");
+        var equipeA = Equipe(10, "Les Nous_", Alice, Bob, eve);
+        var equipeB = Equipe(20, "No M's Land", Chloe, David, frank);
 
-        Assert.Equal("#7 & #8", ScoringService.NomEquipe(equipeSansNavigation));
+        // Format demi-finale : trois joueurs de chaque cote, aucun nombre n'est code en dur.
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 1_000),
+                Ligne(Bob, Metroid, tempsFinalSecs: 1_000),
+                Ligne(eve, Alttp, tempsFinalSecs: 1_000),
+                Ligne(Chloe, Alttp, tempsFinalSecs: 2_000),
+                Ligne(David, Metroid, tempsFinalSecs: 2_000),
+                Ligne(frank, Metroid, tempsFinalSecs: 2_000),
+            ],
+            [equipeA, equipeB]);
+
+        Assert.Equal(3_000, classement[0].TempsTotalSecs);
+        Assert.Equal("Les Nous_", classement[0].EquipeNom);
+        Assert.Equal(3, classement[0].Lignes.Count);
+        Assert.Equal(6_000, classement[1].TempsTotalSecs);
+    }
+
+    [Fact]
+    public void Le_classement_s_adapte_a_quatre_joueurs_par_equipe()
+    {
+        var eve = Joueur(5, "Eve");
+        var frank = Joueur(6, "Frank");
+        var gina = Joueur(7, "Gina");
+        var hugo = Joueur(8, "Hugo");
+        var equipeA = Equipe(10, "Les Nous_", Alice, Bob, eve, gina);
+        var equipeB = Equipe(20, "No M's Land", Chloe, David, frank, hugo);
+
+        // Format finale : quatre joueurs de chaque cote.
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 100),
+                Ligne(Bob, Metroid, tempsFinalSecs: 100),
+                Ligne(eve, Alttp, tempsFinalSecs: 100),
+                Ligne(gina, Metroid, tempsFinalSecs: 100),
+                Ligne(Chloe, Alttp, tempsFinalSecs: 50),
+                Ligne(David, Metroid, tempsFinalSecs: 50),
+                Ligne(frank, Alttp, tempsFinalSecs: 50),
+                Ligne(hugo, Metroid, tempsFinalSecs: 50),
+            ],
+            [equipeA, equipeB]);
+
+        Assert.Equal("No M's Land", classement[0].EquipeNom);
+        Assert.Equal(200, classement[0].TempsTotalSecs);
+        Assert.Equal(4, classement[0].Lignes.Count);
+        Assert.Equal(400, classement[1].TempsTotalSecs);
     }
 
     [Fact]

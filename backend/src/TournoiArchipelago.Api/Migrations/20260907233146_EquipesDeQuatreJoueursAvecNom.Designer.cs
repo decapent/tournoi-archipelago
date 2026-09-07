@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using TournoiArchipelago.Api.Data;
 
@@ -11,9 +12,11 @@ using TournoiArchipelago.Api.Data;
 namespace TournoiArchipelago.Api.Migrations
 {
     [DbContext(typeof(TournoiDbContext))]
-    partial class TournoiDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260907233146_EquipesDeQuatreJoueursAvecNom")]
+    partial class EquipesDeQuatreJoueursAvecNom
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -44,10 +47,7 @@ namespace TournoiArchipelago.Api.Migrations
                         .IsUnique()
                         .HasDatabaseName("UQ_Equipe_nom");
 
-                    b.ToTable("Equipe", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Equipe_nom_non_vide", "[nom] <> ''");
-                        });
+                    b.ToTable("Equipe", (string)null);
                 });
 
             modelBuilder.Entity("TournoiArchipelago.Api.Domain.EquipeJoueur", b =>
@@ -92,10 +92,7 @@ namespace TournoiArchipelago.Api.Migrations
                         .IsUnique()
                         .HasDatabaseName("UQ_Jeu_nom");
 
-                    b.ToTable("Jeu", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Jeu_nom_non_vide", "[nom] <> ''");
-                        });
+                    b.ToTable("Jeu", (string)null);
 
                     b.HasData(
                         new
@@ -182,10 +179,7 @@ namespace TournoiArchipelago.Api.Migrations
                         .IsUnique()
                         .HasDatabaseName("UQ_Joueur_nom");
 
-                    b.ToTable("Joueur", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_Joueur_nom_non_vide", "[nom] <> ''");
-                        });
+                    b.ToTable("Joueur", (string)null);
                 });
 
             modelBuilder.Entity("TournoiArchipelago.Api.Domain.Match", b =>
