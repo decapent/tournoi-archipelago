@@ -22,7 +22,8 @@ public class AuthService(IOptions<AdminOptions> admin, IOptions<JwtOptions> jwt)
     /// <summary>Renvoie un jeton signe, ou <c>null</c> si les identifiants sont refuses.</summary>
     public LoginResponse? Authentifier(LoginRequest requete)
     {
-        if (!Correspond(requete.Username, _admin.Username) || !Correspond(requete.Password, _admin.Password))
+        if (!NomCorrespond(requete.Username, _admin.Username)
+            || !MotDePasseCorrespond(requete.Password, _admin.Password))
         {
             return null;
         }
@@ -51,10 +52,18 @@ public class AuthService(IOptions<AdminOptions> admin, IOptions<JwtOptions> jwt)
     }
 
     /// <summary>
+    /// Le nom d'utilisateur n'est pas un secret : il est compare sans tenir compte de la casse
+    /// ni des espaces autour, comme on l'attend d'un champ de connexion.
+    /// </summary>
+    private static bool NomCorrespond(string? fourni, string? attendu) =>
+        !string.IsNullOrEmpty(attendu)
+        && string.Equals(fourni?.Trim(), attendu.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Comparaison a temps constant, pour ne pas laisser fuir la longueur ni le contenu
     /// attendu via le temps de reponse.
     /// </summary>
-    private static bool Correspond(string? fourni, string? attendu)
+    private static bool MotDePasseCorrespond(string? fourni, string? attendu)
     {
         if (string.IsNullOrEmpty(attendu))
         {
