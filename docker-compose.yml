@@ -1,0 +1,39 @@
+# Execution locale complete : application accessible sur http://localhost:8080
+#
+#   cp .env.example .env      puis ajuster les valeurs
+#   docker compose up --build
+#
+# Les migrations ne sont PAS appliquees par les conteneurs. Les lancer depuis l'hote :
+#   dotnet ef database update --project backend/src/TournoiArchipelago.Api
+
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Tournoi: ${ConnectionStrings__Tournoi:?definir ConnectionStrings__Tournoi dans .env}
+      Admin__Username: ${Admin__Username:?definir Admin__Username dans .env}
+      Admin__Password: ${Admin__Password:?definir Admin__Password dans .env}
+      Jwt__Key: ${Jwt__Key:?definir Jwt__Key dans .env}
+    # SQL Server tourne sur l'hote Windows : l'auth Windows integree n'est pas accessible
+    # depuis un conteneur, d'ou le login SQL cree par db/setup-login.sql.
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped

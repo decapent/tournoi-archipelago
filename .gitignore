@@ -1,0 +1,28 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+[Dd]ebug/
+[Rr]elease/
+TestResults/
+*.trx
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Env / secrets
+.env
+.env.local
+*.local
+
+# Editors / OS
+.vs/
+.idea/
+.vscode/*
+!.vscode/extensions.json
+Thumbs.db
+Desktop.ini

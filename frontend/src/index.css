@@ -1,0 +1,67 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-fond: oklch(0.19 0.02 265);
+  --color-panneau: oklch(0.24 0.02 265);
+  --color-bordure: oklch(0.33 0.02 265);
+  --color-texte: oklch(0.93 0.01 265);
+  --color-texte-doux: oklch(0.68 0.02 265);
+  --color-accent: oklch(0.72 0.16 165);
+  --color-accent-doux: oklch(0.42 0.09 165);
+  --color-alerte: oklch(0.65 0.19 25);
+}
+
+@layer base {
+  body {
+    @apply bg-fond text-texte antialiased;
+  }
+
+  th {
+    @apply text-texte-doux text-xs font-semibold uppercase tracking-wide;
+  }
+}
+
+@layer components {
+  /* Tableaux de statistiques : meme presentation partout. */
+  .tableau {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .tableau th,
+  .tableau td {
+    @apply border-b border-bordure px-3 py-2 text-left;
+  }
+
+  .tableau td.num,
+  .tableau th.num {
+    @apply text-right tabular-nums;
+  }
+
+  .tableau tbody tr:hover {
+    @apply bg-panneau;
+  }
+
+  .panneau {
+    @apply bg-panneau border border-bordure rounded-lg;
+  }
+
+  .champ {
+    @apply bg-fond border border-bordure rounded px-2 py-1.5 text-sm text-texte
+           focus:border-accent focus:outline-none;
+  }
+
+  .bouton {
+    @apply bg-accent-doux border border-accent text-texte rounded px-3 py-1.5 text-sm font-medium
+           hover:bg-accent hover:text-fond disabled:opacity-40 disabled:cursor-not-allowed
+           transition-colors;
+  }
+
+  .bouton-discret {
+    @apply border border-bordure text-texte-doux rounded px-2 py-1 text-xs
+           hover:text-texte hover:border-accent transition-colors;
+  }
+
+  .etiquette {
+    @apply text-texte-doux text-xs font-semibold uppercase tracking-wide;
+  }
+}

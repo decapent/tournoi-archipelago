@@ -1,0 +1,16 @@
+# Normalise les fins de ligne dans le depot (LF), en laissant chaque poste de travail
+# utiliser sa convention locale.
+* text=auto
+
+# Fichiers qui doivent rester en LF, meme sur Windows.
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.dockerignore text eol=lf
+nginx.conf text eol=lf
+
+# Scripts SQL executes par sqlcmd sur Windows.
+*.sql text eol=crlf
+
+*.png binary
+*.jpg binary
+*.ico binary

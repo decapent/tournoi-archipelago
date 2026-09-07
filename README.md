@@ -1,0 +1,147 @@
+# Tournoi Archipelago
+
+Outil de saisie et de statistiques pour un petit tournoi amical d'Archipelago
+(randomizer multiworld, checks partagés entre les participants).
+
+- **Frontend** — Vite + React + TypeScript : classement, statistiques par jeu, historique des
+  matchs, et un panneau d'admin pour la saisie.
+- **Backend** — API .NET 9 (Minimal API) + EF Core sur SQL Server.
+- **Base** — `Archipelago` sur l'instance SQL Server locale.
+
+## Règles du tournoi
+
+| Sujet | Règle |
+|---|---|
+| Format d'un match | Deux équipes de deux joueurs, soit **quatre résultats** (un par joueur) |
+| Score d'une équipe | **Somme des temps de complétion de ses deux joueurs** ; le plus petit total gagne |
+| Abandon (DNF) | Temps laissé vide. L'équipe passe après toutes les équipes complètes, les abandons étant départagés par le nombre de checks trouvés |
+| Égalité parfaite | Les deux équipes partagent la première place et comptent chacune une victoire |
+| Type de match | `QUALIFICATION` ou `TOURNOI` |
+| `total_checks` | Nombre total de checks existant dans le jeu |
+| `nb_checks` | Nombre de checks **trouvés par le joueur** → complétion = `nb_checks / total_checks` |
+
+Cette règle vit à un seul endroit : [`ScoringService`](backend/src/TournoiArchipelago.Api/Services/ScoringService.cs).
+Le formulaire de saisie en affiche un aperçu en direct via
+[`apercuMatch.ts`](frontend/src/pages/admin/apercuMatch.ts), qui reproduit le même classement.
+
+> **Contrainte du modèle** — la table `Equipe` n'a pas de lien vers `Match` : le regroupement des
+> lignes `MatchJeu` en équipes se déduit de l'appartenance des joueurs. Un joueur ne peut donc
+> appartenir qu'à **une seule équipe**, ce que l'API refuse activement.
+
+## Prérequis
+
+- .NET SDK 9
+- Node.js 20+
+- SQL Server local avec la base `Archipelago` et l'authentification mixte activée
+- Docker Desktop (facultatif, pour `docker compose`)
+
+## Mise en route
+
+### 1. Login SQL et configuration
+
+Un conteneur Docker ne peut pas utiliser l'authentification Windows intégrée vers l'instance de
+l'hôte : l'application passe par un login SQL dédié.
+
+```sh
+sqlcmd -S localhost -E -i db/setup-login.sql -v password="MonMotDePasseFort"
+
+cp .env.example .env   # puis reporter le mot de passe et définir Admin__* / Jwt__Key
+```
+
+Générer une clé de signature :
+
+```sh
+openssl rand -base64 48
+```
+
+### 2. Schéma de la base
+
+Les cinq tables du modèle existaient avant l'introduction d'EF Core. La migration
+`InitialCreate` décrit cet état et n'est jamais exécutée : elle est enregistrée comme déjà
+appliquée par `db/baseline.sql`, ce qui préserve le diagramme `dbo.sysdiagrams`.
+
+```sh
+# Une seule fois, sur une base qui n'a pas encore d'historique de migrations :
+sqlcmd -S localhost -E -d Archipelago -i db/baseline.sql
+
+cd backend
+dotnet tool restore
+dotnet ef database update --project src/TournoiArchipelago.Api
+```
+
+La seconde migration, `AjoutNbChecksEtAjustements`, ajoute `nb_checks`, convertit
+`temps_final_secs` de `time` en `int` (secondes), passe `Equipe.id` en `IDENTITY`, resserre les
+colonnes `nvarchar(max)`, ajoute les contraintes d'unicité et sème une douzaine de jeux.
+
+### 3. Développement
+
+Deux terminaux :
+
+```sh
+# API sur http://localhost:8080 (Swagger sur /swagger)
+cd backend
+dotnet run --project src/TournoiArchipelago.Api
+```
+
+```sh
+# Frontend sur http://localhost:5173, /api est relayé vers l'API
+cd frontend
+npm install
+npm run dev
+```
+
+En `Development`, la chaîne de connexion utilise l'authentification Windows et le compte admin est
+`admin` / `admin` (voir `appsettings.Development.json`) — à ne pas utiliser ailleurs.
+
+### 4. Exécution conteneurisée
+
+```sh
+docker compose up --build   # application complète sur http://localhost:8080
+```
+
+Les conteneurs n'appliquent pas les migrations : les lancer depuis l'hôte (étape 2).
+
+## API
+
+Les lectures sont publiques ; toutes les écritures exigent un jeton obtenu via
+`POST /api/auth/login`.
+
+| Méthode | Route | Rôle |
+|---|---|---|
+| `POST` | `/api/auth/login` | Ouvre une session d'admin, renvoie un JWT (8 h) |
+| `GET` | `/api/auth/me` | Vérifie la validité du jeton |
+| `GET`/`POST`/`PUT`/`DELETE` | `/api/joueurs`, `/api/jeux`, `/api/equipes` | Référentiel |
+| `GET` | `/api/matchs?type=&du=&au=` | Historique, du plus récent au plus ancien |
+| `GET` | `/api/matchs/{id}` | Détail : quatre résultats et classement des deux équipes |
+| `POST` | `/api/matchs` | Enregistre un match complet, en transaction |
+| `PUT`/`DELETE` | `/api/matchs/{id}` | Correction / suppression |
+| `GET` | `/api/stats/classement?type=&tri=` | Classement général par équipe (`tri` : `Victoires` ou `Temps`) |
+| `GET` | `/api/stats/jeux?type=` | Statistiques agrégées par jeu |
+
+Les erreurs de validation reviennent en `400` sous forme de `ProblemDetails`, avec le détail par
+champ dans `errors` — le formulaire de saisie les affiche telles quelles.
+
+## Tests
+
+```sh
+cd backend  && dotnet test    # scoring, statistiques, endpoints (SQLite en mémoire)
+cd frontend && npm test       # formatage des temps et aperçu du classement
+cd frontend && npm run lint
+```
+
+## Structure
+
+```
+backend/src/TournoiArchipelago.Api/
+  Domain/          entités mappées sur les tables existantes (colonnes snake_case)
+  Data/            DbContext, configurations Fluent API, migrations, jeux semés
+  Features/        endpoints, un dossier par ressource
+  Services/        ScoringService, StatsService, MatchService, EquipeService...
+  Contracts/       DTOs de requête et de réponse
+frontend/src/
+  api/             types miroirs des DTOs, client HTTP, hooks react-query
+  lib/format.ts    conversions secondes ↔ hh:mm:ss, pourcentages
+  pages/           classement, stats par jeu, matchs, détail
+  pages/admin/     connexion, saisie de match, référentiel
+db/                setup-login.sql, baseline.sql
+```
