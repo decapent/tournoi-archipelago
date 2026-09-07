@@ -4,14 +4,49 @@
     Necessaire parce qu'un conteneur Docker ne peut pas utiliser l'authentification
     Windows integree vers l'instance SQL Server de l'hote.
 
-    A executer UNE FOIS, depuis l'hote, avec un compte administrateur :
+    A executer depuis l'hote, avec un compte administrateur. Le mot de passe est OBLIGATOIRE :
 
-        sqlcmd -S localhost -E -i db/setup-login.sql -v password="MonMotDePasse"
+        sqlcmd -S localhost -E -b -i db/setup-login.sql -v password="MonMotDePasse"
 
-    Puis reporter le meme mot de passe dans le fichier .env (ConnectionStrings__Tournoi).
+    Relancer le script avec un autre mot de passe le met a jour (ALTER LOGIN).
+    Reporter ensuite le meme mot de passe dans .env (ConnectionStrings__Tournoi).
+
+    Aucune valeur par defaut n'est definie volontairement. Un ':setvar' en tete de script
+    prendrait le pas sur l'argument -v, et le login se retrouverait avec un mot de passe
+    lisible par quiconque ouvre ce depot. Le bloc de garde ci-dessous arrete le script quand
+    la substitution n'a pas eu lieu : sans -v, sqlcmd laisse le jeton '$(password)' tel quel
+    et se contenterait d'un avertissement.
+
+    Le mot de passe ne doit pas contenir d'apostrophe : il est injecte tel quel dans le script.
 */
 
-:setvar password "ChangeMoi_MotDePasseFort1"
+:on error exit
+
+SET NOCOUNT ON;
+GO
+
+-- Garde : refuse un mot de passe absent, non substitue ou trop court. -----------
+DECLARE @motDePasse nvarchar(128) = N'$(password)';
+
+-- Le marqueur est reconstruit par concatenation : ecrire la sequence telle quelle
+-- pousserait sqlcmd a tenter de la substituer ici aussi.
+IF @motDePasse = N'' OR CHARINDEX(N'$' + N'(', @motDePasse) > 0
+BEGIN
+    RAISERROR (
+        N'Mot de passe manquant. Relancer avec : sqlcmd -S localhost -E -b -i db/setup-login.sql -v password="..."',
+        16, 1);
+END
+ELSE IF LEN(@motDePasse) < 12
+BEGIN
+    RAISERROR (N'Mot de passe trop court : 12 caracteres au minimum.', 16, 1);
+END
+GO
+
+IF DB_ID(N'Archipelago') IS NULL
+BEGIN
+    RAISERROR (N'La base [Archipelago] est introuvable sur cette instance.', 16, 1);
+END
+GO
 
 USE [master];
 GO
@@ -28,12 +63,6 @@ ELSE
 BEGIN
     ALTER LOGIN [tournoi_app] WITH PASSWORD = N'$(password)';
     PRINT 'Login [tournoi_app] deja present : mot de passe mis a jour.';
-END
-GO
-
-IF DB_ID(N'Archipelago') IS NULL
-BEGIN
-    RAISERROR (N'La base [Archipelago] est introuvable sur cette instance.', 16, 1);
 END
 GO
 
