@@ -22,12 +22,16 @@ public class MatchJeu
 
     /// <summary>
     /// Temps brut en secondes : temps de completion, ou instant de l'abandon quand
-    /// <see cref="EstAbandon"/> est vrai. Toujours renseigne.
+    /// <see cref="EstAbandon"/> est vrai. <c>null</c> signifie que le resultat n'a pas encore
+    /// ete saisi, un match pouvant etre rempli au fur et a mesure.
     /// </summary>
-    public int TempsFinalSecs { get; set; }
+    public int? TempsFinalSecs { get; set; }
 
     /// <summary>Vrai quand le joueur n'a pas termine sa seed.</summary>
     public bool EstAbandon { get; set; }
+
+    /// <summary>Vrai quand le temps de ce joueur reste a saisir.</summary>
+    public bool EstEnAttente => TempsFinalSecs is null;
 
     public Match? Match { get; set; }
 

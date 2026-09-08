@@ -99,6 +99,7 @@ function SectionEquipes() {
 
   const [nom, setNom] = useState('')
   const [selection, setSelection] = useState<number[]>([])
+  const [capitaineId, setCapitaineId] = useState<number | null>(null)
 
   // Un joueur deja engage dans une equipe ne peut pas en rejoindre une seconde.
   const disponibles = useMemo(() => {
@@ -113,21 +114,27 @@ function SectionEquipes() {
   const complet = selection.length === TAILLE_ROSTER
 
   function basculer(joueurId: number) {
-    setSelection((precedente) =>
-      precedente.includes(joueurId)
-        ? precedente.filter((id) => id !== joueurId)
-        : // On ne laisse pas depasser la taille du roster : plus clair qu un message d erreur.
-          precedente.length < TAILLE_ROSTER
-          ? [...precedente, joueurId]
-          : precedente,
-    )
+    setSelection((precedente) => {
+      if (precedente.includes(joueurId)) {
+        // Retirer un joueur du roster lui retire aussi le brassard.
+        if (joueurId === capitaineId) {
+          setCapitaineId(null)
+        }
+
+        return precedente.filter((id) => id !== joueurId)
+      }
+
+      // On ne laisse pas depasser la taille du roster : plus clair qu un message d erreur.
+      return precedente.length < TAILLE_ROSTER ? [...precedente, joueurId] : precedente
+    })
   }
 
   async function ajouter(evenement: React.FormEvent) {
     evenement.preventDefault()
-    await creer.mutateAsync({ nom: nom.trim(), joueurIds: selection })
+    await creer.mutateAsync({ nom: nom.trim(), joueurIds: selection, capitaineId })
     setNom('')
     setSelection([])
+    setCapitaineId(null)
   }
 
   return (
@@ -181,6 +188,33 @@ function SectionEquipes() {
           )}
         </div>
 
+        {selection.length > 0 && (
+          <div>
+            <span className="etiquette mb-1 block">Capitaine (optionnel)</span>
+            <div className="flex flex-wrap gap-2">
+              {selection.map((joueurId) => {
+                const joueur = disponibles.find((candidat) => candidat.id === joueurId)
+                return (
+                  <button
+                    key={joueurId}
+                    type="button"
+                    aria-pressed={capitaineId === joueurId}
+                    className={`rounded border px-2.5 py-1 text-sm transition-colors ${
+                      capitaineId === joueurId
+                        ? 'border-accent text-accent'
+                        : 'border-bordure text-texte-doux hover:text-texte'
+                    }`}
+                    // Recliquer sur le capitaine le retire.
+                    onClick={() => setCapitaineId(capitaineId === joueurId ? null : joueurId)}
+                  >
+                    {joueur?.nom ?? `#${joueurId}`}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
         <button type="submit" className="bouton" disabled={creer.isPending || !complet}>
           Creer l equipe
         </button>
@@ -211,7 +245,12 @@ function SectionEquipes() {
                 </div>
                 <ul className="text-texte-doux space-y-0.5 text-sm">
                   {equipe.membres.map((membre) => (
-                    <li key={membre.id}>{membre.nom}</li>
+                    <li key={membre.id}>
+                      {membre.nom}
+                      {membre.estCapitaine && (
+                        <span className="text-accent ml-1 text-xs">capitaine</span>
+                      )}
+                    </li>
                   ))}
                 </ul>
               </li>

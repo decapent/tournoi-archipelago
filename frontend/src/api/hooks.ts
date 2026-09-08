@@ -171,6 +171,8 @@ export function useSupprimerJeu() {
 export interface EquipeSaisie {
   nom: string
   joueurIds: number[]
+  /** Capitaine, qui doit figurer dans le roster. */
+  capitaineId: number | null
 }
 
 export function useCreerEquipe() {

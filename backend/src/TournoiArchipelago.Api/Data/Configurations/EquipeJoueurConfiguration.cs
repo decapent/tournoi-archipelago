@@ -13,6 +13,7 @@ public class EquipeJoueurConfiguration : IEntityTypeConfiguration<EquipeJoueur>
 
         builder.Property(ej => ej.EquipeId).HasColumnName("equipe_id");
         builder.Property(ej => ej.JoueurId).HasColumnName("joueur_id");
+        builder.Property(ej => ej.EstCapitaine).HasColumnName("est_capitaine").IsRequired();
 
         builder.HasOne(ej => ej.Equipe)
             .WithMany(e => e.Membres)
@@ -31,5 +32,11 @@ public class EquipeJoueurConfiguration : IEntityTypeConfiguration<EquipeJoueur>
         builder.HasIndex(ej => ej.JoueurId)
             .HasDatabaseName("UQ_EquipeJoueur_joueur")
             .IsUnique();
+
+        // Index filtre : au plus un capitaine par equipe, garanti par la base.
+        builder.HasIndex(ej => ej.EquipeId)
+            .HasDatabaseName("UQ_EquipeJoueur_capitaine")
+            .IsUnique()
+            .HasFilter("[est_capitaine] = 1");
     }
 }

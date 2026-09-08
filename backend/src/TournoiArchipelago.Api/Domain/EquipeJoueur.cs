@@ -11,6 +11,9 @@ public class EquipeJoueur
 
     public int JoueurId { get; set; }
 
+    /// <summary>Capitaine du duo. Au plus un par equipe, garanti par un index filtre.</summary>
+    public bool EstCapitaine { get; set; }
+
     public Equipe? Equipe { get; set; }
 
     public Joueur? Joueur { get; set; }

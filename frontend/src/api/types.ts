@@ -16,11 +16,16 @@ export interface Jeu {
   nom: string
 }
 
+export interface Membre extends Joueur {
+  estCapitaine: boolean
+}
+
 export interface Equipe {
   id: number
   nom: string
-  /** Roster de quatre joueurs, dont 2 a 4 participent selon l'etape. */
-  membres: Joueur[]
+  /** Roster de quatre joueurs, dont 2 a 4 participent selon l'etape. Capitaine en tete. */
+  membres: Membre[]
+  capitaine: Membre | null
 }
 
 export interface LigneResultat {
@@ -31,11 +36,13 @@ export interface LigneResultat {
   seed: string | null
   totalChecks: number | null
   nbChecks: number | null
-  /** Temps brut : completion, ou instant de l'abandon. */
-  tempsFinalSecs: number
-  /** Temps retenu au classement, penalite d'abandon incluse. */
-  tempsEffectifSecs: number
+  /** Temps brut : completion, ou instant de l'abandon. Null s'il reste a saisir. */
+  tempsFinalSecs: number | null
+  /** Temps retenu au classement, penalite incluse. Null s'il reste a saisir. */
+  tempsEffectifSecs: number | null
   estAbandon: boolean
+  /** Vrai quand le temps de ce joueur reste a saisir. */
+  estEnAttente: boolean
   /** Part des checks trouves, entre 0 et 1. */
   pourcentComplete: number | null
 }
@@ -45,13 +52,15 @@ export interface EquipeResultat {
   equipeNom: string
   position: number
   estGagnante: boolean
-  /** Score de l'equipe : somme des temps effectifs de ses participants. */
-  tempsTotalSecs: number
-  /** Somme des temps saisis, avant penalite. */
-  tempsBrutSecs: number
+  /** Score de l'equipe. Null tant qu'un resultat de l'equipe reste a saisir. */
+  tempsTotalSecs: number | null
+  /** Somme des temps saisis, avant penalite. Null tant qu'un resultat manque. */
+  tempsBrutSecs: number | null
   /** Total des penalites d'abandon incluses dans le score. */
   penaliteSecs: number
   nbAbandons: number
+  /** Nombre de participants dont le temps reste a saisir. */
+  nbResultatsEnAttente: number
   checksTrouves: number
   totalChecks: number | null
   pourcentComplete: number | null
@@ -63,6 +72,9 @@ export interface MatchSommaire {
   /** Date au format ISO (AAAA-MM-JJ). */
   date: string
   type: TypeMatch
+  /** Faux tant qu'un resultat reste a saisir : le match est alors hors statistiques. */
+  estComplet: boolean
+  nbResultatsEnAttente: number
   equipeGagnanteNom: string | null
   equipeNoms: string[]
 }
@@ -71,6 +83,7 @@ export interface MatchDetail {
   id: number
   date: string
   type: TypeMatch
+  estComplet: boolean
   equipes: EquipeResultat[]
 }
 
@@ -108,8 +121,8 @@ export interface ResultatUpsert {
   seed: string | null
   totalChecks: number | null
   nbChecks: number | null
-  /** Toujours requis : temps de completion, ou instant de l'abandon. */
-  tempsFinalSecs: number
+  /** Temps de completion, ou instant de l'abandon. Null tant qu'il reste a saisir. */
+  tempsFinalSecs: number | null
   estAbandon: boolean
 }
 
@@ -118,6 +131,7 @@ export interface MatchUpsert {
   type: TypeMatch
   equipeAId: number
   equipeBId: number
+  /** Peut etre vide a la creation : les resultats se completent ensuite. */
   resultats: ResultatUpsert[]
 }
 

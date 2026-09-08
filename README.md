@@ -150,6 +150,48 @@ cd frontend && npm test       # formatage des temps et aperçu du classement
 cd frontend && npm run lint
 ```
 
+## CI/CD
+
+Deux workflows GitHub Actions, calqués sur ceux de `Decapent.NRS` : ils construisent l'image,
+la poussent dans un ACR et déploient sur une Azure Container App. Déclenchés manuellement
+(`workflow_dispatch`) ou à la fermeture d'une PR sur `main` touchant `backend/` ou `frontend/`.
+
+- `.github/workflows/api-build-deploy.yaml` — tests, build/push, **migrations EF Core**, déploiement.
+  Le job de migration s'intercale avant le déploiement : une migration en échec bloque la mise en ligne.
+- `.github/workflows/web-build-deploy.yaml` — lint, tests, build/push, déploiement.
+
+### Configuration requise
+
+L'authentification passe par OIDC (`azure/login@v2`, sans secret de client). L'App Registration
+doit porter une *federated credential* dont le sujet est
+`repo:<compte>/<dépôt>:environment:build`, et le dépôt doit avoir un environnement nommé
+`build`. Le principal a besoin de `AcrPush` sur le registre et de `Contributor` sur le groupe
+de ressources.
+
+| Secret | Rôle |
+|---|---|
+| `AZURE_CLIENT_ID` | Application (client) ID de l'App Registration |
+| `AZURE_TENANT_ID` | Tenant Entra ID |
+| `AZURE_SUBSCRIPTION_ID` | Abonnement cible |
+| `MIGRATIONS_DB_CONNECTION` | Chaîne de connexion utilisée par `dotnet ef database update` |
+
+| Variable | Rôle |
+|---|---|
+| `CONTAINER_REGISTRY` | Nom du registre, par exemple `monacr.azurecr.io` |
+| `RESOURCE_GROUP` | Groupe de ressources des Container Apps |
+| `API_IMAGE_REPOSITORY` / `WEB_IMAGE_REPOSITORY` | Dépôts d'images dans l'ACR |
+| `API_CONTAINER_APP` / `WEB_CONTAINER_APP` | Noms des Container Apps |
+| `API_URL` | Amont du proxy nginx du frontend : FQDN de la Container App de l'API |
+
+> **Base de données** — le job de migration exige une base joignable depuis le runner GitHub
+> (pare-feu Azure SQL : « Autoriser les services Azure », ou l'IP du runner), et **baselinée
+> une fois** avec `db/baseline.sql`, faute de quoi `InitialCreate` serait rejouée sur des
+> tables déjà présentes.
+
+> **Frontend** — l'image nginx substitue `API_URL` au démarrage (`envsubst`). La valeur par
+> défaut `http://api:8080` correspond au service de `docker-compose`, ce qui laisse
+> l'exécution locale inchangée.
+
 ## Structure
 
 ```

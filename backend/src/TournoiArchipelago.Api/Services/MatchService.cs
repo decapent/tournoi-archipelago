@@ -7,22 +7,17 @@ using TournoiArchipelago.Api.Infrastructure;
 namespace TournoiArchipelago.Api.Services;
 
 /// <summary>
-/// Saisie et consultation des matchs. Un match oppose toujours deux equipes, mais le nombre de
-/// participants par equipe varie selon l'etape : deux en qualification, trois en demi-finale,
-/// quatre en finale. Ce nombre n'est pas configure, il se deduit des lignes saisies ; la seule
-/// exigence est que les deux equipes alignent autant de joueurs l'une que l'autre.
+/// Saisie et consultation des matchs. Un match oppose toujours deux equipes, mais ses resultats
+/// peuvent etre completes au fur et a mesure : seuls la date, le type et les deux equipes sont
+/// requis a la creation.
+///
+/// Le nombre de participants par equipe n'est pas configure, il se deduit des lignes saisies
+/// (deux en qualification, trois en demi-finale, quatre en finale). La coherence du format
+/// n'est donc verifiee qu'a la lecture, via <see cref="ClassementMatch.EstComplet"/>, et non a
+/// l'enregistrement, sans quoi une saisie progressive serait impossible.
 /// </summary>
 public class MatchService(TournoiDbContext db)
 {
-    /// <summary>Nombre d'equipes qui s'affrontent dans un match.</summary>
-    public const int NbEquipesParMatch = 2;
-
-    /// <summary>Nombre minimal de participants par equipe (format qualification).</summary>
-    public const int NbJoueursMinParEquipe = 2;
-
-    /// <summary>Nombre maximal de participants par equipe (roster complet, format finale).</summary>
-    public const int NbJoueursMaxParEquipe = 4;
-
     public async Task<IReadOnlyList<MatchSommaireDto>> ListerAsync(
         TypeMatch? type,
         DateOnly? du,
@@ -51,17 +46,18 @@ public class MatchService(TournoiDbContext db)
             .ThenByDescending(m => m.Id)
             .ToListAsync(annulation);
 
-        var equipes = await ChargerEquipesAsync(annulation);
-
         return [.. matchs.Select(match =>
         {
-            var classement = ScoringService.ClasserMatch(match.MatchJeux, equipes);
+            var classement = ScoringService.ClasserMatch(match);
+
             return new MatchSommaireDto(
                 Id: match.Id,
                 Date: match.Date,
                 Type: match.Type,
-                EquipeGagnanteNom: classement.FirstOrDefault(e => e.EstGagnante)?.EquipeNom,
-                EquipeNoms: [.. classement.Select(e => e.EquipeNom)]);
+                EstComplet: classement.EstComplet,
+                NbResultatsEnAttente: classement.Equipes.Sum(e => e.NbResultatsEnAttente),
+                EquipeGagnanteNom: classement.Equipes.FirstOrDefault(e => e.EstGagnante)?.EquipeNom,
+                EquipeNoms: [.. classement.Equipes.Select(e => e.EquipeNom)]);
         })];
     }
 
@@ -70,25 +66,14 @@ public class MatchService(TournoiDbContext db)
         var match = await ChargerComplet().AsNoTracking()
             .FirstOrDefaultAsync(m => m.Id == id, annulation);
 
-        if (match is null)
-        {
-            return null;
-        }
-
-        var equipes = await ChargerEquipesAsync(annulation);
-
-        return new MatchDetailDto(
-            Id: match.Id,
-            Date: match.Date,
-            Type: match.Type,
-            Equipes: ScoringService.ClasserMatch(match.MatchJeux, equipes));
+        return match is null ? null : VersDetail(match);
     }
 
     public async Task<MatchDetailDto> CreerAsync(
         MatchUpsertRequest requete,
         CancellationToken annulation = default)
     {
-        var lignes = await ValiderAsync(requete, annulation);
+        var (equipeIds, lignes) = await ValiderAsync(requete, annulation);
 
         // Passer par la strategie d'execution rend l'ecriture compatible avec une reprise sur
         // erreur transitoire, qu'EF Core interdit autour d'une transaction ouverte a la main.
@@ -96,7 +81,13 @@ public class MatchService(TournoiDbContext db)
         {
             await using var transaction = await db.Database.BeginTransactionAsync(annulation);
 
-            var match = new Match { Date = requete.Date, Type = requete.Type };
+            var match = new Match
+            {
+                Date = requete.Date,
+                Type = requete.Type,
+                Equipes = [.. equipeIds.Select(id => new MatchEquipe { EquipeId = id })],
+            };
+
             db.Matchs.Add(match);
             await db.SaveChangesAsync(annulation);
 
@@ -122,6 +113,7 @@ public class MatchService(TournoiDbContext db)
         CancellationToken annulation = default)
     {
         var match = await db.Matchs
+            .Include(m => m.Equipes)
             .Include(m => m.MatchJeux)
             .FirstOrDefaultAsync(m => m.Id == id, annulation);
 
@@ -130,7 +122,7 @@ public class MatchService(TournoiDbContext db)
             return null;
         }
 
-        var lignes = await ValiderAsync(requete, annulation);
+        var (equipeIds, lignes) = await ValiderAsync(requete, annulation);
 
         await db.Database.CreateExecutionStrategy().ExecuteAsync(async () =>
         {
@@ -138,6 +130,17 @@ public class MatchService(TournoiDbContext db)
 
             match.Date = requete.Date;
             match.Type = requete.Type;
+
+            foreach (var partant in match.Equipes.Where(e => !equipeIds.Contains(e.EquipeId)).ToList())
+            {
+                match.Equipes.Remove(partant);
+            }
+
+            var dejaEngagees = match.Equipes.Select(e => e.EquipeId).ToHashSet();
+            foreach (var equipeId in equipeIds.Where(equipeId => !dejaEngagees.Contains(equipeId)))
+            {
+                match.Equipes.Add(new MatchEquipe { MatchId = id, EquipeId = equipeId });
+            }
 
             // Le jeu fait partie de la cle primaire : les lignes sont remplacees plutot que modifiees.
             db.MatchJeux.RemoveRange(match.MatchJeux);
@@ -165,29 +168,39 @@ public class MatchService(TournoiDbContext db)
             return false;
         }
 
-        // Les lignes MatchJeu partent en cascade.
+        // Les lignes MatchEquipe et MatchJeu partent en cascade.
         db.Matchs.Remove(match);
         await db.SaveChangesAsync(annulation);
         return true;
     }
 
-    private IQueryable<Match> ChargerComplet() =>
-        db.Matchs
+    /// <summary>Charge un match avec tout ce dont <see cref="ScoringService"/> a besoin.</summary>
+    internal static IQueryable<Match> ChargerComplet(IQueryable<Match> source) =>
+        source
+            .Include(m => m.Equipes).ThenInclude(e => e.Equipe!).ThenInclude(e => e.Membres)
             .Include(m => m.MatchJeux).ThenInclude(mj => mj.Joueur)
             .Include(m => m.MatchJeux).ThenInclude(mj => mj.Jeu);
 
-    private Task<List<Equipe>> ChargerEquipesAsync(CancellationToken annulation) =>
-        db.Equipes
-            .Include(e => e.Membres).ThenInclude(m => m.Joueur)
-            .AsNoTracking()
-            .ToListAsync(annulation);
+    internal static MatchDetailDto VersDetail(Match match)
+    {
+        var classement = ScoringService.ClasserMatch(match);
+
+        return new MatchDetailDto(
+            Id: match.Id,
+            Date: match.Date,
+            Type: match.Type,
+            EstComplet: classement.EstComplet,
+            Equipes: classement.Equipes);
+    }
+
+    private IQueryable<Match> ChargerComplet() => ChargerComplet(db.Matchs);
 
     /// <summary>
-    /// Verifie la coherence de la saisie et construit les lignes a persister.
-    /// Leve <see cref="RequeteInvalideException"/> en decrivant tous les problemes trouves,
-    /// afin que le formulaire puisse les afficher en une seule passe.
+    /// Verifie la coherence de la saisie et construit les lignes a persister. Une saisie
+    /// partielle est acceptee : ce qui est verifie ici, c'est que ce qui est saisi est
+    /// coherent, pas que le match soit termine.
     /// </summary>
-    private async Task<List<MatchJeu>> ValiderAsync(
+    private async Task<(List<int> EquipeIds, List<MatchJeu> Lignes)> ValiderAsync(
         MatchUpsertRequest requete,
         CancellationToken annulation)
     {
@@ -225,7 +238,7 @@ public class MatchService(TournoiDbContext db)
             .Where(e => e.Id == requete.EquipeAId || e.Id == requete.EquipeBId)
             .ToListAsync(annulation);
 
-        if (deuxEquipesDistinctes && equipes.Count != NbEquipesParMatch)
+        if (deuxEquipesDistinctes && equipes.Count != ScoringService.NbEquipesParMatch)
         {
             var trouvees = equipes.Select(e => e.Id).ToHashSet();
             var manquantes = new[] { requete.EquipeAId, requete.EquipeBId }.Where(id => !trouvees.Contains(id));
@@ -241,7 +254,7 @@ public class MatchService(TournoiDbContext db)
             Ajouter("resultats", $"Un joueur ne peut apparaitre qu'une seule fois par match : {string.Join(", ", doublons)}.");
         }
 
-        if (equipes.Count == NbEquipesParMatch)
+        if (equipes.Count == ScoringService.NbEquipesParMatch)
         {
             var rosters = equipes.ToDictionary(e => e.Id, e => e.MembreIds.ToHashSet());
 
@@ -255,36 +268,19 @@ public class MatchService(TournoiDbContext db)
                 Ajouter("resultats", $"Ces joueurs ne font pas partie des deux equipes : {string.Join(", ", intrus)}.");
             }
 
-            // Le format du match n'est pas configure : il decoule du nombre de joueurs alignes.
-            // On exige seulement que les deux equipes en alignent autant l'une que l'autre.
-            var effectifs = equipes.ToDictionary(
-                equipe => equipe,
-                equipe => joueursSaisis.Count(id => rosters[equipe.Id].Contains(id)));
-
-            var distincts = effectifs.Values.Distinct().ToList();
-            if (distincts.Count > 1)
+            // On ne peut pas exiger un effectif complet lors d'une saisie progressive, mais on
+            // refuse de depasser la taille du roster.
+            foreach (var equipe in equipes)
             {
-                var detail = string.Join(
-                    " contre ",
-                    effectifs.Select(paire => $"{paire.Value} pour {paire.Key.Nom}"));
+                var effectif = joueursSaisis.Count(id => rosters[equipe.Id].Contains(id));
 
-                Ajouter("resultats", $"Les deux equipes doivent aligner le meme nombre de joueurs : {detail}.");
-            }
-            else
-            {
-                var effectif = distincts.Count == 1 ? distincts[0] : 0;
-
-                if (effectif < NbJoueursMinParEquipe || effectif > NbJoueursMaxParEquipe)
+                if (effectif > ScoringService.NbJoueursMaxParEquipe)
                 {
                     Ajouter(
                         "resultats",
-                        $"Chaque equipe doit aligner entre {NbJoueursMinParEquipe} et {NbJoueursMaxParEquipe} joueurs, {effectif} recu(s).");
+                        $"{equipe.Nom} aligne {effectif} joueurs, au-dela du maximum de {ScoringService.NbJoueursMaxParEquipe}.");
                 }
             }
-        }
-        else if (resultats.Count == 0)
-        {
-            Ajouter("resultats", "Aucun resultat saisi.");
         }
 
         var jeuxDemandes = resultats.Select(r => r.JeuId).Distinct().ToList();
@@ -320,14 +316,14 @@ public class MatchService(TournoiDbContext db)
                 Ajouter(champ, "Le nombre de checks trouves ne peut pas depasser le total du jeu.");
             }
 
-            // Un abandon porte l'instant ou le joueur a arrete : un temps est donc toujours requis.
-            if (resultat.TempsFinalSecs <= 0)
+            // Le temps peut rester a saisir, mais jamais valoir zero ou moins.
+            if (resultat.TempsFinalSecs is <= 0)
             {
                 Ajouter(
                     champ,
                     resultat.EstAbandon
-                        ? "Le temps d'abandon doit etre positif."
-                        : "Le temps de completion doit etre positif.");
+                        ? "Le temps d'abandon doit etre positif, ou laisse vide s'il reste a saisir."
+                        : "Le temps de completion doit etre positif, ou laisse vide s'il reste a saisir.");
             }
         }
 
@@ -337,7 +333,7 @@ public class MatchService(TournoiDbContext db)
                 erreurs.ToDictionary(paire => paire.Key, paire => paire.Value.ToArray()));
         }
 
-        return [.. resultats.Select(resultat => new MatchJeu
+        var lignes = resultats.Select(resultat => new MatchJeu
         {
             JoueurId = resultat.JoueurId,
             JeuId = resultat.JeuId,
@@ -346,6 +342,8 @@ public class MatchService(TournoiDbContext db)
             NbChecks = resultat.NbChecks,
             TempsFinalSecs = resultat.TempsFinalSecs,
             EstAbandon = resultat.EstAbandon,
-        })];
+        }).ToList();
+
+        return ([requete.EquipeAId, requete.EquipeBId], lignes);
     }
 }

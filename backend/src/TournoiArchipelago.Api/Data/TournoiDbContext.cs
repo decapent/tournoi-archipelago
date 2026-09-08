@@ -15,6 +15,8 @@ public class TournoiDbContext(DbContextOptions<TournoiDbContext> options) : DbCo
 
     public DbSet<Match> Matchs => Set<Match>();
 
+    public DbSet<MatchEquipe> MatchEquipes => Set<MatchEquipe>();
+
     public DbSet<MatchJeu> MatchJeux => Set<MatchJeu>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

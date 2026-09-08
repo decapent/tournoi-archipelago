@@ -4,7 +4,7 @@ using TournoiArchipelago.Api.Domain;
 namespace TournoiArchipelago.Api.Services;
 
 /// <summary>
-/// Regroupe les lignes d'un match par equipe et les classe.
+/// Classe les equipes engagees dans un match.
 ///
 /// C'est le seul endroit ou vit la regle de classement :
 ///   1. un joueur qui abandonne compte son temps d'abandon majore de
@@ -14,88 +14,171 @@ namespace TournoiArchipelago.Api.Services;
 ///
 /// La penalite etant la sanction, une equipe avec un abandon est classee comme les autres.
 ///
-/// Le nombre de participants par equipe n'est pas fixe : il se deduit des lignes saisies
-/// (deux en qualification, trois en demi-finale, quatre en finale).
-///
-/// En cas d'egalite parfaite, les equipes partagent la meme position et comptent chacune
-/// une victoire.
+/// Un match peut etre rempli au fur et a mesure : tant qu'il n'est pas complet, il est classe
+/// a titre indicatif mais ne designe aucun vainqueur, et les statistiques l'ignorent.
 /// </summary>
 public static class ScoringService
 {
     /// <summary>Majoration appliquee au temps d'un joueur qui abandonne : une heure.</summary>
     public const int PenaliteAbandonSecs = 3600;
 
+    /// <summary>Nombre d'equipes qui s'affrontent dans un match.</summary>
+    public const int NbEquipesParMatch = 2;
+
+    /// <summary>Nombre minimal de participants par equipe (format qualification).</summary>
+    public const int NbJoueursMinParEquipe = 2;
+
+    /// <summary>Nombre maximal de participants par equipe (roster complet, format finale).</summary>
+    public const int NbJoueursMaxParEquipe = 4;
+
     public const string NomEquipeInconnue = "Sans equipe";
 
-    /// <summary>Temps retenu au classement : le temps brut, majore en cas d'abandon.</summary>
-    public static int TempsEffectifSecs(MatchJeu ligne) =>
-        ligne.TempsFinalSecs + (ligne.EstAbandon ? PenaliteAbandonSecs : 0);
+    /// <summary>Temps retenu au classement, ou <c>null</c> si le resultat reste a saisir.</summary>
+    public static int? TempsEffectifSecs(MatchJeu ligne) =>
+        ligne.TempsFinalSecs is null
+            ? null
+            : ligne.TempsFinalSecs.Value + (ligne.EstAbandon ? PenaliteAbandonSecs : 0);
 
     /// <summary>
-    /// Classe les equipes presentes dans un match. Les navigations <c>Joueur</c> et <c>Jeu</c>
-    /// des lignes sont utilisees pour les libelles lorsqu'elles sont chargees.
+    /// Classe les equipes engagees dans un match. Les navigations <c>Equipe</c>, <c>Joueur</c>
+    /// et <c>Jeu</c> sont utilisees pour les libelles lorsqu'elles sont chargees.
     /// </summary>
-    public static IReadOnlyList<EquipeResultatDto> ClasserMatch(
-        IEnumerable<MatchJeu> lignes,
-        IEnumerable<Equipe> equipes)
+    public static ClassementMatch ClasserMatch(Match match)
     {
-        var equipeParJoueur = new Dictionary<int, Equipe>();
-        foreach (var equipe in equipes)
-        {
-            foreach (var joueurId in equipe.MembreIds)
-            {
-                equipeParJoueur[joueurId] = equipe;
-            }
-        }
+        var lignesParEquipe = RepartirLignes(match);
 
-        var groupes = lignes
-            .GroupBy(ligne => equipeParJoueur.GetValueOrDefault(ligne.JoueurId))
-            .Select(groupe => Agreger(groupe.Key, [.. groupe]))
+        var groupes = lignesParEquipe
+            .Select(paire => Agreger(paire.Equipe, paire.Lignes))
             .ToList();
 
+        var estComplet = EstComplet(groupes);
+
         var ordonnes = groupes
-            .OrderBy(g => g.TempsTotalSecs)
+            .OrderBy(g => g.TempsTotalSecs ?? int.MaxValue)
             .ThenBy(g => g.Nom, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var resultats = new List<EquipeResultatDto>(ordonnes.Count);
         var position = 0;
         int? totalPrecedent = null;
+        var premiereLigne = true;
 
-        for (var i = 0; i < ordonnes.Count; i++)
+        foreach (var groupe in ordonnes)
         {
-            var groupe = ordonnes[i];
-
             // Classement sportif : deux equipes a egalite partagent la meme position.
-            if (totalPrecedent is null || totalPrecedent != groupe.TempsTotalSecs)
+            if (premiereLigne || totalPrecedent != groupe.TempsTotalSecs)
             {
-                position = i + 1;
+                position = resultats.Count + 1;
                 totalPrecedent = groupe.TempsTotalSecs;
+                premiereLigne = false;
             }
 
             resultats.Add(new EquipeResultatDto(
                 EquipeId: groupe.EquipeId,
                 EquipeNom: groupe.Nom,
                 Position: position,
-                EstGagnante: position == 1,
+                // Tant que le match n'est pas complet, aucun vainqueur n'est designe.
+                EstGagnante: estComplet && position == 1,
                 TempsTotalSecs: groupe.TempsTotalSecs,
                 TempsBrutSecs: groupe.TempsBrutSecs,
                 PenaliteSecs: groupe.PenaliteSecs,
                 NbAbandons: groupe.NbAbandons,
+                NbResultatsEnAttente: groupe.NbResultatsEnAttente,
                 ChecksTrouves: groupe.ChecksTrouves,
                 TotalChecks: groupe.TotalChecks,
                 PourcentComplete: groupe.PourcentComplete,
                 Lignes: groupe.Lignes));
         }
 
-        return resultats;
+        return new ClassementMatch(estComplet, resultats);
+    }
+
+    /// <summary>
+    /// Repartit les resultats entre les equipes engagees. Une equipe engagee sans aucun
+    /// resultat apparait quand meme, avec une liste vide : c'est le cas d'un match tout juste
+    /// cree. Un resultat dont le joueur n'appartient a aucune des deux equipes est regroupe a
+    /// part plutot que perdu.
+    /// </summary>
+    private static List<(Equipe? Equipe, List<MatchJeu> Lignes)> RepartirLignes(Match match)
+    {
+        var equipeParJoueur = new Dictionary<int, Equipe>();
+        var parEquipe = new Dictionary<int, List<MatchJeu>>();
+        var engagees = new List<Equipe>();
+
+        foreach (var engagement in match.Equipes.OrderBy(e => e.EquipeId))
+        {
+            if (engagement.Equipe is null)
+            {
+                continue;
+            }
+
+            engagees.Add(engagement.Equipe);
+            parEquipe[engagement.Equipe.Id] = [];
+
+            foreach (var membre in engagement.Equipe.Membres)
+            {
+                equipeParJoueur[membre.JoueurId] = engagement.Equipe;
+            }
+        }
+
+        var orphelines = new List<MatchJeu>();
+
+        foreach (var ligne in match.MatchJeux)
+        {
+            if (equipeParJoueur.TryGetValue(ligne.JoueurId, out var equipe))
+            {
+                parEquipe[equipe.Id].Add(ligne);
+            }
+            else
+            {
+                orphelines.Add(ligne);
+            }
+        }
+
+        var repartition = engagees
+            .Select(equipe => ((Equipe?)equipe, parEquipe[equipe.Id]))
+            .ToList();
+
+        if (orphelines.Count > 0)
+        {
+            repartition.Add((null, orphelines));
+        }
+
+        return repartition;
+    }
+
+    /// <summary>
+    /// Un match est complet quand les deux equipes alignent le meme nombre de participants,
+    /// dans les bornes du format, et que chacun a un temps.
+    /// </summary>
+    private static bool EstComplet(IReadOnlyList<GroupeEquipe> groupes)
+    {
+        if (groupes.Count != NbEquipesParMatch || groupes.Any(g => g.EquipeId is null))
+        {
+            return false;
+        }
+
+        if (groupes.Any(g => g.NbResultatsEnAttente > 0))
+        {
+            return false;
+        }
+
+        var effectifs = groupes.Select(g => g.Lignes.Count).Distinct().ToList();
+
+        return effectifs.Count == 1
+            && effectifs[0] >= NbJoueursMinParEquipe
+            && effectifs[0] <= NbJoueursMaxParEquipe;
     }
 
     private static GroupeEquipe Agreger(Equipe? equipe, List<MatchJeu> lignes)
     {
-        var tempsBrut = lignes.Sum(ligne => ligne.TempsFinalSecs);
+        var nbEnAttente = lignes.Count(ligne => ligne.EstEnAttente);
         var nbAbandons = lignes.Count(ligne => ligne.EstAbandon);
         var penalite = nbAbandons * PenaliteAbandonSecs;
+
+        // Le score n'a de sens qu'une fois tous les temps de l'equipe saisis.
+        var tousSaisis = lignes.Count > 0 && nbEnAttente == 0;
+        int? tempsBrut = tousSaisis ? lignes.Sum(ligne => ligne.TempsFinalSecs!.Value) : null;
 
         var checksTrouves = lignes.Sum(ligne => ligne.NbChecks ?? 0);
 
@@ -109,8 +192,9 @@ public static class ScoringService
             Nom: equipe?.Nom ?? NomEquipeInconnue,
             TempsBrutSecs: tempsBrut,
             PenaliteSecs: penalite,
-            TempsTotalSecs: tempsBrut + penalite,
+            TempsTotalSecs: tempsBrut is null ? null : tempsBrut + penalite,
             NbAbandons: nbAbandons,
+            NbResultatsEnAttente: nbEnAttente,
             ChecksTrouves: checksTrouves,
             TotalChecks: totalChecks,
             PourcentComplete: totalChecks is > 0 ? (double)checksTrouves / totalChecks.Value : null,
@@ -130,15 +214,17 @@ public static class ScoringService
         TempsFinalSecs: ligne.TempsFinalSecs,
         TempsEffectifSecs: TempsEffectifSecs(ligne),
         EstAbandon: ligne.EstAbandon,
+        EstEnAttente: ligne.EstEnAttente,
         PourcentComplete: ligne.PourcentComplete);
 
     private sealed record GroupeEquipe(
         int? EquipeId,
         string Nom,
-        int TempsBrutSecs,
+        int? TempsBrutSecs,
         int PenaliteSecs,
-        int TempsTotalSecs,
+        int? TempsTotalSecs,
         int NbAbandons,
+        int NbResultatsEnAttente,
         int ChecksTrouves,
         int? TotalChecks,
         double? PourcentComplete,

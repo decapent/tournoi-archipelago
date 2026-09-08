@@ -15,4 +15,7 @@ public class Equipe : INomme
 
     /// <summary>Identifiants des joueurs du roster.</summary>
     public IEnumerable<int> MembreIds => Membres.Select(membre => membre.JoueurId);
+
+    /// <summary>Capitaine du roster, s'il a ete designe.</summary>
+    public EquipeJoueur? Capitaine => Membres.FirstOrDefault(membre => membre.EstCapitaine);
 }
