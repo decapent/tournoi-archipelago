@@ -3,9 +3,10 @@ using TournoiArchipelago.Api.Domain;
 namespace TournoiArchipelago.Api.Contracts;
 
 /// <summary>
-/// Resultat d'un joueur a saisir dans un match. <c>TempsFinalSecs</c> est toujours requis :
-/// c'est le temps de completion, ou l'instant de l'abandon quand <c>EstAbandon</c> est vrai.
-/// La penalite d'abandon est appliquee au classement, pas a la saisie.
+/// Resultat d'un joueur a saisir dans un match. <c>TempsFinalSecs</c> peut rester a null tant
+/// que le resultat n'est pas connu : c'est le temps de completion, ou l'instant de l'abandon
+/// quand <c>EstAbandon</c> est vrai. La penalite d'abandon est appliquee au classement, pas a
+/// la saisie.
 /// </summary>
 public record ResultatUpsertRequest(
     int JoueurId,
@@ -13,19 +14,19 @@ public record ResultatUpsertRequest(
     string? Seed,
     int? TotalChecks,
     int? NbChecks,
-    int TempsFinalSecs,
+    int? TempsFinalSecs,
     bool EstAbandon);
 
 /// <summary>
-/// Un match oppose exactement deux equipes, soit quatre lignes de resultat
-/// (une par joueur des deux equipes).
+/// Un match oppose exactement deux equipes. Les resultats peuvent etre omis a la creation et
+/// completes plus tard : seules la date, le type et les deux equipes sont requis.
 /// </summary>
 public record MatchUpsertRequest(
     DateOnly Date,
     TypeMatch Type,
     int EquipeAId,
     int EquipeBId,
-    IReadOnlyList<ResultatUpsertRequest> Resultats);
+    IReadOnlyList<ResultatUpsertRequest>? Resultats);
 
 public record LigneResultatDto(
     int JoueurId,
@@ -35,11 +36,13 @@ public record LigneResultatDto(
     string? Seed,
     int? TotalChecks,
     int? NbChecks,
-    /// <summary>Temps brut saisi : completion, ou instant de l'abandon.</summary>
-    int TempsFinalSecs,
-    /// <summary>Temps retenu au classement, penalite d'abandon incluse.</summary>
-    int TempsEffectifSecs,
+    /// <summary>Temps brut saisi : completion, ou instant de l'abandon. Null si a saisir.</summary>
+    int? TempsFinalSecs,
+    /// <summary>Temps retenu au classement, penalite d'abandon incluse. Null si a saisir.</summary>
+    int? TempsEffectifSecs,
     bool EstAbandon,
+    /// <summary>Vrai quand le temps de ce joueur reste a saisir.</summary>
+    bool EstEnAttente,
     double? PourcentComplete);
 
 /// <summary>Une equipe et son resultat au sein d'un match.</summary>
@@ -48,13 +51,18 @@ public record EquipeResultatDto(
     string EquipeNom,
     int Position,
     bool EstGagnante,
-    /// <summary>Score de l'equipe : somme des temps effectifs de ses participants.</summary>
-    int TempsTotalSecs,
-    /// <summary>Somme des temps saisis, avant penalite.</summary>
-    int TempsBrutSecs,
+    /// <summary>
+    /// Score de l'equipe : somme des temps effectifs de ses participants. Null tant qu'un
+    /// resultat de l'equipe reste a saisir.
+    /// </summary>
+    int? TempsTotalSecs,
+    /// <summary>Somme des temps saisis, avant penalite. Null tant qu'un resultat manque.</summary>
+    int? TempsBrutSecs,
     /// <summary>Total des penalites d'abandon incluses dans le score.</summary>
     int PenaliteSecs,
     int NbAbandons,
+    /// <summary>Nombre de participants dont le temps reste a saisir.</summary>
+    int NbResultatsEnAttente,
     int ChecksTrouves,
     int? TotalChecks,
     double? PourcentComplete,
@@ -64,6 +72,9 @@ public record MatchSommaireDto(
     int Id,
     DateOnly Date,
     TypeMatch Type,
+    /// <summary>Faux tant qu'un resultat reste a saisir : le match est alors hors statistiques.</summary>
+    bool EstComplet,
+    int NbResultatsEnAttente,
     string? EquipeGagnanteNom,
     IReadOnlyList<string> EquipeNoms);
 
@@ -71,4 +82,5 @@ public record MatchDetailDto(
     int Id,
     DateOnly Date,
     TypeMatch Type,
+    bool EstComplet,
     IReadOnlyList<EquipeResultatDto> Equipes);

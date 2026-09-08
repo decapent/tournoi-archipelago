@@ -8,11 +8,10 @@ public class MatchJeuConfiguration : IEntityTypeConfiguration<MatchJeu>
 {
     public void Configure(EntityTypeBuilder<MatchJeu> builder)
     {
-        // Un temps nul n'est pas representable : EF pose un DEFAULT 0 en rendant la colonne
-        // obligatoire, ce qui suffirait a laisser passer une ligne sans temps.
+        // Le temps peut rester a saisir (NULL), mais jamais valoir zero.
         builder.ToTable("MatchJeu", t => t.HasCheckConstraint(
             "CK_MatchJeu_temps_positif",
-            "[temps_final_secs] > 0"));
+            "[temps_final_secs] IS NULL OR [temps_final_secs] > 0"));
         builder.HasKey(mj => new { mj.MatchId, mj.JeuId, mj.JoueurId }).HasName("PK_MatchJeu");
 
         builder.Property(mj => mj.MatchId).HasColumnName("match_id");
@@ -23,12 +22,13 @@ public class MatchJeuConfiguration : IEntityTypeConfiguration<MatchJeu>
         builder.Property(mj => mj.TotalChecks).HasColumnName("total_checks");
         builder.Property(mj => mj.NbChecks).HasColumnName("nb_checks");
 
-        // Temps brut en secondes : completion, ou instant de l'abandon. Toujours renseigne ;
-        // la penalite d'abandon est calculee par ScoringService, jamais stockee.
-        builder.Property(mj => mj.TempsFinalSecs).HasColumnName("temps_final_secs").IsRequired();
+        // Temps brut en secondes : completion, ou instant de l'abandon. NULL tant que le
+        // resultat n'est pas saisi ; la penalite d'abandon est calculee, jamais stockee.
+        builder.Property(mj => mj.TempsFinalSecs).HasColumnName("temps_final_secs");
         builder.Property(mj => mj.EstAbandon).HasColumnName("est_abandon").IsRequired();
 
         builder.Ignore(mj => mj.PourcentComplete);
+        builder.Ignore(mj => mj.EstEnAttente);
 
         builder.HasOne(mj => mj.Match)
             .WithMany(m => m.MatchJeux)

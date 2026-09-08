@@ -1,7 +1,7 @@
 import { analyserTemps } from '../../lib/format'
 import type { ResultatUpsert } from '../../api/types'
 
-/** Bornes imposees par l'API (MatchService.NbJoueursMin/MaxParEquipe). */
+/** Bornes imposees par l'API (ScoringService.NbJoueursMin/MaxParEquipe). */
 export const MIN_PARTICIPANTS = 2
 export const MAX_PARTICIPANTS = 4
 
@@ -27,8 +27,8 @@ export interface LigneSaisie {
   totalChecks: string
   nbChecks: string
   /**
-   * Temps saisi en `hh:mm:ss`, `mm:ss` ou secondes. Toujours requis : pour un abandon,
-   * c est l instant ou le joueur a arrete.
+   * Temps saisi en `hh:mm:ss`, `mm:ss` ou secondes. Peut rester vide : le resultat sera
+   * complete plus tard. Pour un abandon, c est l instant ou le joueur a arrete.
    */
   temps: string
 }
@@ -38,30 +38,60 @@ export interface ApercuEquipe {
   equipeNom: string
   position: number
   estGagnante: boolean
-  /** Score de l equipe : somme des temps effectifs de ses participants. */
+  /** Score de l equipe. Null tant qu un temps de l equipe reste a saisir. */
   totalSecs: number | null
   /** Somme des temps saisis, avant penalite. */
   totalBrutSecs: number | null
   /** Total des penalites d abandon incluses dans le score. */
   penaliteSecs: number
   nbAbandons: number
+  nbResultatsEnAttente: number
   checksTrouves: number
   totalChecks: number | null
   pourcentComplete: number | null
 }
 
-/** Temps retenu au classement pour une ligne, ou `undefined` si la saisie est inexploitable. */
-export function tempsEffectif(ligne: LigneSaisie): number | undefined {
-  const brut = analyserTemps(ligne.temps)
-  return brut === undefined ? undefined : brut + (ligne.estAbandon ? PENALITE_ABANDON_SECS : 0)
+export interface Apercu {
+  /** Vrai quand le match satisfait les regles de completion du backend. */
+  estComplet: boolean
+  equipes: ApercuEquipe[]
+  /** Ce qu il reste a faire pour que le match compte au classement. */
+  manquants: string[]
+}
+
+/**
+ * Etat d un temps saisi. On distingue le champ vide (resultat a venir) d une saisie mal
+ * formee (erreur a corriger) : seul le second bloque l enregistrement.
+ */
+type TempsSaisi =
+  | { etat: 'vide' }
+  | { etat: 'valide'; secondes: number }
+  | { etat: 'invalide' }
+
+export function lireTemps(saisie: string): TempsSaisi {
+  if (saisie.trim() === '') {
+    return { etat: 'vide' }
+  }
+
+  const secondes = analyserTemps(saisie)
+  return secondes === undefined ? { etat: 'invalide' } : { etat: 'valide', secondes }
+}
+
+/** Temps retenu au classement pour une ligne, ou `null` s il reste a saisir. */
+export function tempsEffectif(ligne: LigneSaisie): number | null {
+  const temps = lireTemps(ligne.temps)
+
+  return temps.etat === 'valide'
+    ? temps.secondes + (ligne.estAbandon ? PENALITE_ABANDON_SECS : 0)
+    : null
 }
 
 /**
  * Reproduit le classement du backend (ScoringService) pour donner un apercu avant l envoi :
  * un abandon compte son temps majore d une heure, on somme les temps ainsi obtenus, et le
- * plus petit total gagne.
+ * plus petit total gagne. Tant que le match n est pas complet, aucun vainqueur n est designe.
  */
-export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
+export function calculerApercu(lignes: readonly LigneSaisie[]): Apercu {
   const groupes = new Map<number, LigneSaisie[]>()
 
   for (const ligne of lignes.filter((l) => l.participe)) {
@@ -74,16 +104,17 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
   }
 
   const agreges = [...groupes.entries()].map(([equipeId, sesLignes]) => {
-    // Une saisie invalide est ignoree : l apercu reste lisible pendant la frappe.
-    const bruts = sesLignes
-      .map((ligne) => analyserTemps(ligne.temps))
-      .filter((valeur): valeur is number => valeur !== undefined)
+    const effectifs = sesLignes.map((ligne) => tempsEffectif(ligne))
+    const nbResultatsEnAttente = effectifs.filter((valeur) => valeur === null).length
 
     const nbAbandons = sesLignes.filter((ligne) => ligne.estAbandon).length
     const penaliteSecs = nbAbandons * PENALITE_ABANDON_SECS
 
-    const totalBrutSecs = bruts.length > 0 ? bruts.reduce((a, b) => a + b, 0) : null
-    const totalSecs = totalBrutSecs === null ? null : totalBrutSecs + penaliteSecs
+    // Le score n a de sens qu une fois tous les temps de l equipe saisis.
+    const totalSecs =
+      nbResultatsEnAttente === 0
+        ? effectifs.reduce((cumul: number, valeur) => cumul + (valeur ?? 0), 0)
+        : null
 
     const checksTrouves = sesLignes.reduce(
       (cumul, ligne) => cumul + (entier(ligne.nbChecks) ?? 0),
@@ -98,15 +129,20 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
       equipeId,
       equipeNom: sesLignes[0].equipeNom,
       totalSecs,
-      totalBrutSecs,
+      totalBrutSecs: totalSecs === null ? null : totalSecs - penaliteSecs,
       penaliteSecs,
       nbAbandons,
+      nbResultatsEnAttente,
+      effectif: sesLignes.length,
       checksTrouves,
       totalChecks,
       pourcentComplete:
         totalChecks !== null && totalChecks > 0 ? checksTrouves / totalChecks : null,
     }
   })
+
+  const manquants = decrireManquants(agreges)
+  const estComplet = manquants.length === 0
 
   // Les equipes dont le total n est pas encore calculable passent en fin d apercu.
   const ordonnes = agreges.sort(
@@ -118,19 +154,51 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
   let position = 0
   let totalPrecedent: number | null | undefined
 
-  return ordonnes.map((groupe, index) => {
+  const equipes = ordonnes.map((groupe, index) => {
     if (totalPrecedent === undefined || totalPrecedent !== groupe.totalSecs) {
       position = index + 1
       totalPrecedent = groupe.totalSecs
     }
 
-    return { ...groupe, position, estGagnante: position === 1 }
+    const { effectif: _effectif, ...reste } = groupe
+    return { ...reste, position, estGagnante: estComplet && position === 1 }
   })
+
+  return { estComplet, equipes, manquants }
+}
+
+/** Mirroir de ScoringService.EstComplet, exprime en langage naturel. */
+function decrireManquants(
+  groupes: readonly { equipeNom: string; effectif: number; nbResultatsEnAttente: number }[],
+): string[] {
+  if (groupes.length < 2) {
+    return ['Ajouter des participants dans les deux equipes.']
+  }
+
+  const manquants: string[] = []
+
+  const effectifs = groupes.map((g) => g.effectif)
+  if (new Set(effectifs).size > 1) {
+    const detail = groupes.map((g) => `${g.effectif} pour ${g.equipeNom}`).join(' contre ')
+    manquants.push(`Les deux equipes doivent aligner le meme nombre de joueurs : ${detail}.`)
+  } else if (effectifs[0] < MIN_PARTICIPANTS || effectifs[0] > MAX_PARTICIPANTS) {
+    manquants.push(
+      `Chaque equipe doit aligner entre ${MIN_PARTICIPANTS} et ${MAX_PARTICIPANTS} joueurs, ${effectifs[0]} selectionne(s).`,
+    )
+  }
+
+  const enAttente = groupes.reduce((cumul, g) => cumul + g.nbResultatsEnAttente, 0)
+  if (enAttente > 0) {
+    manquants.push(`${enAttente} temps reste(nt) a saisir.`)
+  }
+
+  return manquants
 }
 
 /**
- * Traduit les lignes du formulaire en corps de requete. Renvoie `null` si une ligne est
- * incomplete ou si un temps est mal forme, ce qui bloque l envoi.
+ * Traduit les lignes du formulaire en corps de requete. Un temps vide devient `null` : le
+ * resultat sera complete plus tard. Renvoie `null` si une ligne est inexploitable, ce qui
+ * bloque l envoi.
  */
 export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] | null {
   const resultats: ResultatUpsert[] = []
@@ -140,8 +208,8 @@ export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] 
       return null
     }
 
-    const temps = analyserTemps(ligne.temps)
-    if (temps === undefined) {
+    const temps = lireTemps(ligne.temps)
+    if (temps.etat === 'invalide') {
       return null
     }
 
@@ -151,7 +219,7 @@ export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] 
       seed: ligne.seed.trim() === '' ? null : ligne.seed.trim(),
       totalChecks: entier(ligne.totalChecks),
       nbChecks: entier(ligne.nbChecks),
-      tempsFinalSecs: temps,
+      tempsFinalSecs: temps.etat === 'valide' ? temps.secondes : null,
       estAbandon: ligne.estAbandon,
     })
   }
@@ -159,42 +227,20 @@ export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] 
   return resultats
 }
 
-/** Messages de validation locaux, pour eviter un aller-retour serveur evitable. */
+/**
+ * Erreurs qui empechent l enregistrement. Un temps encore inconnu n en fait pas partie :
+ * il rend seulement le match incomplet, ce que signale {@link Apercu.manquants}.
+ */
 export function validerLignes(lignes: readonly LigneSaisie[]): string[] {
   const problemes: string[] = []
-  const participants = lignes.filter((l) => l.participe)
 
-  const effectifs = new Map<string, number>()
-  for (const ligne of participants) {
-    effectifs.set(ligne.equipeNom, (effectifs.get(ligne.equipeNom) ?? 0) + 1)
-  }
-
-  // Meme regle que le backend : les deux equipes alignent autant de joueurs l une que l autre,
-  // entre deux et quatre.
-  const nombres = [...effectifs.values()]
-  if (new Set(nombres).size > 1) {
-    const detail = [...effectifs.entries()].map(([nom, n]) => `${n} pour ${nom}`).join(' contre ')
-    problemes.push(`Les deux equipes doivent aligner le meme nombre de joueurs : ${detail}.`)
-  } else if (
-    nombres.length > 0 &&
-    (nombres[0] < MIN_PARTICIPANTS || nombres[0] > MAX_PARTICIPANTS)
-  ) {
-    problemes.push(
-      `Chaque equipe doit aligner entre ${MIN_PARTICIPANTS} et ${MAX_PARTICIPANTS} joueurs, ${nombres[0]} selectionne(s).`,
-    )
-  }
-
-  for (const ligne of participants) {
+  for (const ligne of lignes.filter((l) => l.participe)) {
     if (ligne.jeuId === null) {
       problemes.push(`${ligne.joueurNom} : choisir un jeu.`)
     }
 
-    if (analyserTemps(ligne.temps) === undefined) {
-      problemes.push(
-        ligne.estAbandon
-          ? `${ligne.joueurNom} : saisir le temps atteint au moment de l abandon.`
-          : `${ligne.joueurNom} : temps invalide (attendu hh:mm:ss).`,
-      )
+    if (lireTemps(ligne.temps).etat === 'invalide') {
+      problemes.push(`${ligne.joueurNom} : temps invalide (attendu hh:mm:ss).`)
     }
 
     const total = entier(ligne.totalChecks)

@@ -4,7 +4,7 @@ import { useMatchs } from '../api/hooks'
 import type { TypeMatch } from '../api/types'
 import { Chargement, Erreur, Vide } from '../components/Etats'
 import { FiltreType } from '../components/FiltreType'
-import { formaterDate } from '../lib/format'
+import { ABSENT, formaterDate } from '../lib/format'
 
 export function MatchsPage() {
   const [type, setType] = useState<TypeMatch | undefined>(undefined)
@@ -67,7 +67,15 @@ export function MatchsPage() {
                     <td className="tabular-nums">{formaterDate(match.date)}</td>
                     <td className="text-texte-doux text-xs">{match.type}</td>
                     <td>{match.equipeNoms.join('  vs  ')}</td>
-                    <td className="text-accent font-medium">{match.equipeGagnanteNom ?? '—'}</td>
+                    <td className="font-medium">
+                      {match.estComplet ? (
+                        <span className="text-accent">{match.equipeGagnanteNom ?? ABSENT}</span>
+                      ) : (
+                        <span className="text-texte-doux text-xs">
+                          en cours, {match.nbResultatsEnAttente} temps a saisir
+                        </span>
+                      )}
+                    </td>
                     <td className="text-right">
                       <Link to={`/matchs/${match.id}`} className="bouton-discret">
                         Detail

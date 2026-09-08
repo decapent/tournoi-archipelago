@@ -21,6 +21,8 @@ public class MatchConfiguration : IEntityTypeConfiguration<Match>
             .HasMaxLength(20)
             .IsRequired();
 
+        builder.Ignore(m => m.EquipeIds);
+
         builder.HasIndex(m => m.Date).HasDatabaseName("IX_Match_date");
     }
 }

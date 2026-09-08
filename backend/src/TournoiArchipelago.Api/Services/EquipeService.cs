@@ -7,9 +7,10 @@ using TournoiArchipelago.Api.Infrastructure;
 namespace TournoiArchipelago.Api.Services;
 
 /// <summary>
-/// Gestion des equipes et de leur roster. Comme la table Equipe n'a pas de lien vers Match,
-/// le regroupement des resultats en equipes se deduit de l'appartenance des joueurs : un joueur
-/// ne peut donc figurer que dans une seule equipe, sans quoi le regroupement serait ambigu.
+/// Gestion des equipes et de leur roster. Les equipes engagees dans un match sont portees par
+/// MatchEquipe, mais rattacher un resultat a l'un des deux camps passe par l'appartenance du
+/// joueur : un joueur ne peut donc figurer que dans une seule equipe, sans quoi ce
+/// rattachement serait ambigu.
 /// </summary>
 public class EquipeService(TournoiDbContext db)
 {
@@ -37,12 +38,16 @@ public class EquipeService(TournoiDbContext db)
         EquipeUpsertRequest requete,
         CancellationToken annulation = default)
     {
-        var (nom, joueurIds) = await ValiderAsync(requete, equipeExclue: null, annulation);
+        var (nom, joueurIds, capitaineId) = await ValiderAsync(requete, equipeExclue: null, annulation);
 
         var equipe = new Equipe
         {
             Nom = nom,
-            Membres = [.. joueurIds.Select(id => new EquipeJoueur { JoueurId = id })],
+            Membres = [.. joueurIds.Select(id => new EquipeJoueur
+            {
+                JoueurId = id,
+                EstCapitaine = id == capitaineId,
+            })],
         };
 
         db.Equipes.Add(equipe);
@@ -66,7 +71,7 @@ public class EquipeService(TournoiDbContext db)
             return null;
         }
 
-        var (nom, joueurIds) = await ValiderAsync(requete, equipeExclue: id, annulation);
+        var (nom, joueurIds, capitaineId) = await ValiderAsync(requete, equipeExclue: id, annulation);
 
         equipe.Nom = nom;
 
@@ -81,6 +86,20 @@ public class EquipeService(TournoiDbContext db)
         foreach (var arrivantId in joueurIds.Where(joueurId => !dejaMembres.Contains(joueurId)))
         {
             equipe.Membres.Add(new EquipeJoueur { EquipeId = id, JoueurId = arrivantId });
+        }
+
+        // Le capitaine est retire avant d'etre attribue : l'index filtre n'en tolere qu'un,
+        // et SaveChanges ne garantit pas l'ordre des mises a jour.
+        foreach (var membre in equipe.Membres)
+        {
+            membre.EstCapitaine = false;
+        }
+
+        await db.SaveChangesAsync(annulation);
+
+        if (capitaineId is not null)
+        {
+            equipe.Membres.Single(membre => membre.JoueurId == capitaineId.Value).EstCapitaine = true;
         }
 
         await db.SaveChangesAsync(annulation);
@@ -120,8 +139,13 @@ public class EquipeService(TournoiDbContext db)
         Id: equipe.Id,
         Nom: equipe.Nom,
         Membres: [.. equipe.Membres
-            .Select(membre => new JoueurDto(membre.JoueurId, membre.Joueur?.Nom ?? $"#{membre.JoueurId}"))
-            .OrderBy(joueur => joueur.Nom, StringComparer.OrdinalIgnoreCase)]);
+            .Select(membre => new MembreDto(
+                membre.JoueurId,
+                membre.Joueur?.Nom ?? $"#{membre.JoueurId}",
+                membre.EstCapitaine))
+            // Le capitaine en tete, puis par ordre alphabetique.
+            .OrderByDescending(membre => membre.EstCapitaine)
+            .ThenBy(membre => membre.Nom, StringComparer.OrdinalIgnoreCase)]);
 
     private IQueryable<Equipe> ChargerAvecMembres() =>
         db.Equipes.Include(e => e.Membres).ThenInclude(m => m.Joueur);
@@ -130,7 +154,7 @@ public class EquipeService(TournoiDbContext db)
     /// Valide le nom et le roster. Leve <see cref="RequeteInvalideException"/> en decrivant
     /// tous les problemes trouves.
     /// </summary>
-    private async Task<(string Nom, List<int> JoueurIds)> ValiderAsync(
+    private async Task<(string Nom, List<int> JoueurIds, int? CapitaineId)> ValiderAsync(
         EquipeUpsertRequest requete,
         int? equipeExclue,
         CancellationToken annulation)
@@ -199,12 +223,17 @@ public class EquipeService(TournoiDbContext db)
             }
         }
 
+        if (requete.CapitaineId is not null && !joueurIds.Contains(requete.CapitaineId.Value))
+        {
+            Ajouter("capitaineId", "Le capitaine doit faire partie du roster.");
+        }
+
         if (erreurs.Count > 0)
         {
             throw new RequeteInvalideException(
                 erreurs.ToDictionary(paire => paire.Key, paire => paire.Value.ToArray()));
         }
 
-        return (nom, joueurIds);
+        return (nom, joueurIds, requete.CapitaineId);
     }
 }

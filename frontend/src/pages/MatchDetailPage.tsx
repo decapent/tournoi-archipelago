@@ -36,7 +36,10 @@ export function MatchDetailPage() {
       <header className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Match du {formaterDate(match.date)}</h1>
-          <p className="text-texte-doux mt-1 text-sm">{match.type}</p>
+          <p className="text-texte-doux mt-1 text-sm">
+            {match.type}
+            {!match.estComplet && ' - en cours, hors classement general'}
+          </p>
         </div>
 
         <div className="flex items-center gap-2">
@@ -88,7 +91,11 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
           <p className="text-lg font-semibold tabular-nums">
             {formaterTemps(equipe.tempsTotalSecs)}
           </p>
-          {equipe.nbAbandons > 0 ? (
+          {equipe.nbResultatsEnAttente > 0 ? (
+            <p className="text-texte-doux text-xs">
+              {equipe.nbResultatsEnAttente} temps a saisir
+            </p>
+          ) : equipe.nbAbandons > 0 ? (
             <p className="text-alerte text-xs">
               {formaterTemps(equipe.tempsBrutSecs)} + {formaterTemps(equipe.penaliteSecs)} de
               penalite
@@ -130,8 +137,9 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
               <td className="num">{formaterTemps(ligne.tempsFinalSecs)}</td>
               <td className={`num whitespace-nowrap ${ligne.estAbandon ? 'text-alerte' : ''}`}>
                 {formaterTemps(ligne.tempsEffectifSecs)}
-                {ligne.estAbandon && (
-                  <span className="block text-xs">abandon, +1 h</span>
+                {ligne.estAbandon && <span className="block text-xs">abandon, +1 h</span>}
+                {ligne.estEnAttente && (
+                  <span className="text-texte-doux block text-xs">a saisir</span>
                 )}
               </td>
             </tr>

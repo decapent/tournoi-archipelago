@@ -18,7 +18,8 @@ export function ClassementPage() {
           <h1 className="text-xl font-semibold">Classement general</h1>
           <p className="text-texte-doux mt-1 text-sm">
             Le score d une equipe est la somme des temps de ses participants, chaque abandon
-            comptant son temps majore d une heure. Le plus petit total gagne le match.
+            comptant son temps majore d une heure. Le plus petit total gagne le match. Les
+            matchs dont un temps reste a saisir n y figurent pas encore.
           </p>
         </div>
 

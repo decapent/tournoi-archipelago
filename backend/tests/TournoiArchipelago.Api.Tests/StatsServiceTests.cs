@@ -220,7 +220,11 @@ public class StatsServiceTests
     private static Equipe EquipeAvec(string nom, params Joueur[] membres) => new()
     {
         Nom = nom,
-        Membres = [.. membres.Select(joueur => new EquipeJoueur { JoueurId = joueur.Id })],
+        Membres = [.. membres.Select((joueur, rang) => new EquipeJoueur
+        {
+            JoueurId = joueur.Id,
+            EstCapitaine = rang == 0,
+        })],
     };
 
     private static async Task<DonneesSemees> SemerAsync(ContexteDeTest contexte)
@@ -254,11 +258,28 @@ public class StatsServiceTests
     {
         await using var db = contexte.Creer();
 
-        var match = new Match { Date = date, Type = type };
+        var saisies = lignes.ToList();
+
+        // Les equipes engagees se deduisent des joueurs semes : un match doit les porter,
+        // sans quoi ScoringService ne le considere jamais complet.
+        var joueurIds = saisies.Select(l => l.Joueur.Id).ToList();
+        var equipeIds = db.EquipeJoueurs
+            .Where(ej => joueurIds.Contains(ej.JoueurId))
+            .Select(ej => ej.EquipeId)
+            .Distinct()
+            .ToList();
+
+        var match = new Match
+        {
+            Date = date,
+            Type = type,
+            Equipes = [.. equipeIds.Select(id => new MatchEquipe { EquipeId = id })],
+        };
+
         db.Matchs.Add(match);
         await db.SaveChangesAsync();
 
-        foreach (var ligne in lignes)
+        foreach (var ligne in saisies)
         {
             db.MatchJeux.Add(new MatchJeu
             {
@@ -275,11 +296,13 @@ public class StatsServiceTests
         await db.SaveChangesAsync();
     }
 
-    /// <summary>Une ligne de resultat a semer. Le temps est toujours renseigne.</summary>
+    /// <summary>
+    /// Une ligne de resultat a semer. <c>Temps</c> a null signifie un resultat encore a saisir.
+    /// </summary>
     private sealed record Saisie(
         Joueur Joueur,
         Jeu Jeu,
-        int Temps,
+        int? Temps,
         int? NbChecks = null,
         int? TotalChecks = null,
         bool EstAbandon = false);

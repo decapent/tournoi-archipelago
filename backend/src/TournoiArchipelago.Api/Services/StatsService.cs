@@ -28,7 +28,15 @@ public class StatsService(TournoiDbContext db)
 
         foreach (var match in matchs)
         {
-            foreach (var resultat in ScoringService.ClasserMatch(match.MatchJeux, equipes))
+            var classement = ScoringService.ClasserMatch(match);
+
+            // Un match dont un resultat reste a saisir ne compte pas encore au classement.
+            if (!classement.EstComplet)
+            {
+                continue;
+            }
+
+            foreach (var resultat in classement.Equipes)
             {
                 if (resultat.EquipeId is null || !cumuls.TryGetValue(resultat.EquipeId.Value, out var cumul))
                 {
@@ -36,7 +44,7 @@ public class StatsService(TournoiDbContext db)
                 }
 
                 cumul.MatchsJoues++;
-                cumul.TempsCumuleSecs += resultat.TempsTotalSecs;
+                cumul.TempsCumuleSecs += resultat.TempsTotalSecs ?? 0;
                 cumul.ChecksTrouves += resultat.ChecksTrouves;
 
                 if (resultat.EstGagnante)
@@ -46,7 +54,11 @@ public class StatsService(TournoiDbContext db)
 
                 cumul.Abandons += resultat.NbAbandons;
                 cumul.Penalites += resultat.PenaliteSecs;
-                cumul.TotauxParMatch.Add(resultat.TempsTotalSecs);
+
+                if (resultat.TempsTotalSecs is not null)
+                {
+                    cumul.TotauxParMatch.Add(resultat.TempsTotalSecs.Value);
+                }
 
                 if (resultat.PourcentComplete is not null)
                 {
@@ -101,17 +113,13 @@ public class StatsService(TournoiDbContext db)
     {
         var jeux = await db.Jeux.AsNoTracking().ToListAsync(annulation);
 
-        var requete = db.MatchJeux
-            .Include(mj => mj.Joueur)
-            .Include(mj => mj.Match)
-            .AsNoTracking();
+        // Les statistiques par jeu suivent la meme regle que le classement : un match dont un
+        // resultat reste a saisir est ignore, y compris ses lignes deja renseignees.
+        var matchs = await ChargerMatchsAsync(type, annulation);
 
-        if (type is not null)
-        {
-            requete = requete.Where(mj => mj.Match!.Type == type.Value);
-        }
-
-        var lignesParJeu = (await requete.ToListAsync(annulation))
+        var lignesParJeu = matchs
+            .Where(match => ScoringService.ClasserMatch(match).EstComplet)
+            .SelectMany(match => match.MatchJeux)
             .GroupBy(mj => mj.JeuId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
@@ -120,8 +128,8 @@ public class StatsService(TournoiDbContext db)
             var lignes = lignesParJeu.GetValueOrDefault(jeu.Id) ?? [];
             // Les abandons sont exclus des temps : ils ne mesurent pas une completion.
             var terminees = lignes.Where(l => !l.EstAbandon).ToList();
-            var temps = terminees.Select(l => l.TempsFinalSecs).OrderBy(t => t).ToList();
-            var meilleure = terminees.MinBy(l => l.TempsFinalSecs);
+            var temps = terminees.Select(l => l.TempsFinalSecs!.Value).OrderBy(t => t).ToList();
+            var meilleure = terminees.MinBy(l => l.TempsFinalSecs!.Value);
             var checks = lignes.Where(l => l.NbChecks is not null).Select(l => (double)l.NbChecks!.Value).ToList();
             var pourcentages = lignes.Select(l => l.PourcentComplete).OfType<double>().ToList();
 
@@ -159,11 +167,7 @@ public class StatsService(TournoiDbContext db)
 
     private Task<List<Match>> ChargerMatchsAsync(TypeMatch? type, CancellationToken annulation)
     {
-        var requete = db.Matchs
-            .Include(m => m.MatchJeux).ThenInclude(mj => mj.Joueur)
-            .Include(m => m.MatchJeux).ThenInclude(mj => mj.Jeu)
-            .AsNoTracking()
-            .AsQueryable();
+        var requete = MatchService.ChargerComplet(db.Matchs).AsNoTracking();
 
         if (type is not null)
         {

@@ -15,7 +15,7 @@ import {
   validerLignes,
   versResultats,
 } from './apercuMatch'
-import type { ApercuEquipe, LigneSaisie } from './apercuMatch'
+import type { Apercu, LigneSaisie } from './apercuMatch'
 
 /** Valeurs de depart du formulaire : celles d un match existant, ou un brouillon vide. */
 interface ValeursInitiales {
@@ -100,12 +100,9 @@ function FormulaireMatch({
   const apercu = useMemo(() => calculerApercu(lignes), [lignes])
   const problemes = useMemo(() => validerLignes(lignes), [lignes])
 
-  const nbParticipants = lignes.filter((ligne) => ligne.participe).length
-  const pret =
-    nbParticipants >= MIN_PARTICIPANTS * 2 &&
-    problemes.length === 0 &&
-    equipeAId !== null &&
-    equipeBId !== null
+  // Un match peut etre enregistre des que les deux equipes sont choisies : les resultats
+  // se completent ensuite. Seules les erreurs de saisie bloquent.
+  const pret = problemes.length === 0 && equipeAId !== null && equipeBId !== null
 
   /** Changer d equipe regenere les lignes depuis les rosters des deux equipes. */
   function choisirEquipe(cote: 'A' | 'B', nouvelId: number | null) {
@@ -159,9 +156,10 @@ function FormulaireMatch({
           {enEdition ? `Corriger le match ${matchId}` : 'Saisir un match'}
         </h1>
         <p className="text-texte-doux mt-1 text-sm">
-          Coche les joueurs qui participent : {MIN_PARTICIPANTS} par equipe en qualification, 3 en
-          demi-finale, {MAX_PARTICIPANTS} en finale. Un temps est toujours requis ; pour un
-          abandon, saisis le temps atteint et coche la case, une heure de penalite sera ajoutee.
+          Choisis les deux equipes et enregistre : les jeux, seeds et temps peuvent etre
+          completes plus tard. Coche les participants ({MIN_PARTICIPANTS} par equipe en
+          qualification, 3 en demi-finale, {MAX_PARTICIPANTS} en finale). Pour un abandon,
+          saisis le temps atteint et coche la case : une heure de penalite sera ajoutee.
         </p>
       </header>
 
@@ -210,7 +208,10 @@ function FormulaireMatch({
       </div>
 
       {parEquipe.length === 0 ? (
-        <Vide>Choisis les deux equipes pour saisir leurs resultats.</Vide>
+        <Vide>
+          Choisis les deux equipes. Tu peux enregistrer le match tout de suite et saisir les
+          resultats plus tard.
+        </Vide>
       ) : (
         <>
           <div className="mb-4 space-y-4">
@@ -309,7 +310,7 @@ function FormulaireMatch({
                         <td>
                           <input
                             className="champ w-24"
-                            placeholder="hh:mm:ss"
+                            placeholder="a venir"
                             value={ligne.temps}
                             disabled={!ligne.participe}
                             onChange={(evenement) =>
@@ -350,7 +351,7 @@ function FormulaireMatch({
             ))}
           </div>
 
-          <Apercu apercu={apercu} />
+          <ApercuClassement apercu={apercu} />
         </>
       )}
 
@@ -419,17 +420,34 @@ function ChoixEquipe({
   )
 }
 
-function Apercu({ apercu }: { apercu: ApercuEquipe[] }) {
-  if (apercu.length === 0) {
+function ApercuClassement({ apercu }: { apercu: Apercu }) {
+  if (apercu.equipes.length === 0) {
     return null
   }
 
   return (
     <div className="panneau p-4">
-      <h2 className="etiquette mb-3">Apercu du classement</h2>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="etiquette">Apercu du classement</h2>
+        {apercu.estComplet ? (
+          <span className="text-accent text-xs">match complet</span>
+        ) : (
+          <span className="text-texte-doux text-xs">
+            match en cours, hors classement general
+          </span>
+        )}
+      </div>
+
+      {apercu.manquants.length > 0 && (
+        <ul className="text-texte-doux mb-3 list-inside list-disc space-y-1 text-xs">
+          {apercu.manquants.map((manquant) => (
+            <li key={manquant}>{manquant}</li>
+          ))}
+        </ul>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2">
-        {apercu.map((equipe) => (
+        {apercu.equipes.map((equipe) => (
           <div
             key={equipe.equipeId}
             className={`rounded border px-3 py-2 ${
@@ -443,7 +461,11 @@ function Apercu({ apercu }: { apercu: ApercuEquipe[] }) {
               </span>
             </div>
             <p className="text-texte-doux mt-1 text-xs">
-              {equipe.estGagnante ? 'gagnante' : `position ${equipe.position}`}
+              {equipe.estGagnante
+                ? 'gagnante'
+                : equipe.nbResultatsEnAttente > 0
+                  ? `${equipe.nbResultatsEnAttente} temps a saisir`
+                  : `position ${equipe.position}`}
               {' · '}
               {equipe.checksTrouves} checks
               {equipe.totalChecks !== null && ` (${formaterPourcent(equipe.pourcentComplete)})`}
