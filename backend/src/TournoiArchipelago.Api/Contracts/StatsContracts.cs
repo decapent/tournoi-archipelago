@@ -10,7 +10,9 @@ public record ClassementEquipeDto(
     double? TempsMoyenSecs,
     int ChecksTrouves,
     double? PourcentCompleteMoyen,
-    int Abandons);
+    int Abandons,
+    /// <summary>Total des penalites d'abandon comprises dans le temps cumule.</summary>
+    int PenaliteCumuleeSecs);
 
 public record StatsJeuDto(
     int JeuId,

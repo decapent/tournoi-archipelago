@@ -5,6 +5,9 @@ import type { ResultatUpsert } from '../../api/types'
 export const MIN_PARTICIPANTS = 2
 export const MAX_PARTICIPANTS = 4
 
+/** Majoration appliquee au temps d'un abandon (ScoringService.PenaliteAbandonSecs). */
+export const PENALITE_ABANDON_SECS = 3600
+
 /** Une ligne du formulaire de saisie : les champs restent des chaines tant qu on edite. */
 export interface LigneSaisie {
   joueurId: number
@@ -17,11 +20,16 @@ export interface LigneSaisie {
    * deux participants par equipe en qualification, trois en demi-finale, quatre en finale.
    */
   participe: boolean
+  /** Vrai quand le joueur n a pas termine : son temps est alors majore d une heure. */
+  estAbandon: boolean
   jeuId: number | null
   seed: string
   totalChecks: string
   nbChecks: string
-  /** Temps saisi en `hh:mm:ss`, `mm:ss` ou secondes. Vide signifie un abandon. */
+  /**
+   * Temps saisi en `hh:mm:ss`, `mm:ss` ou secondes. Toujours requis : pour un abandon,
+   * c est l instant ou le joueur a arrete.
+   */
   temps: string
 }
 
@@ -30,17 +38,28 @@ export interface ApercuEquipe {
   equipeNom: string
   position: number
   estGagnante: boolean
+  /** Score de l equipe : somme des temps effectifs de ses participants. */
   totalSecs: number | null
-  estAbandon: boolean
+  /** Somme des temps saisis, avant penalite. */
+  totalBrutSecs: number | null
+  /** Total des penalites d abandon incluses dans le score. */
+  penaliteSecs: number
+  nbAbandons: number
   checksTrouves: number
   totalChecks: number | null
   pourcentComplete: number | null
 }
 
+/** Temps retenu au classement pour une ligne, ou `undefined` si la saisie est inexploitable. */
+export function tempsEffectif(ligne: LigneSaisie): number | undefined {
+  const brut = analyserTemps(ligne.temps)
+  return brut === undefined ? undefined : brut + (ligne.estAbandon ? PENALITE_ABANDON_SECS : 0)
+}
+
 /**
  * Reproduit le classement du backend (ScoringService) pour donner un apercu avant l envoi :
- * somme des temps des participants, le plus petit total gagne, et un abandon passe apres
- * toutes les equipes completes, departage par checks trouves.
+ * un abandon compte son temps majore d une heure, on somme les temps ainsi obtenus, et le
+ * plus petit total gagne.
  */
 export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
   const groupes = new Map<number, LigneSaisie[]>()
@@ -55,14 +74,21 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
   }
 
   const agreges = [...groupes.entries()].map(([equipeId, sesLignes]) => {
-    const temps = sesLignes.map((ligne) => analyserTemps(ligne.temps))
-    const valides = temps.filter((valeur): valeur is number => typeof valeur === 'number')
+    // Une saisie invalide est ignoree : l apercu reste lisible pendant la frappe.
+    const bruts = sesLignes
+      .map((ligne) => analyserTemps(ligne.temps))
+      .filter((valeur): valeur is number => valeur !== undefined)
 
-    // Une saisie invalide est traitee comme absente : l apercu reste lisible pendant la frappe.
-    const estAbandon = valides.length !== sesLignes.length
-    const totalSecs = valides.length > 0 ? valides.reduce((a, b) => a + b, 0) : null
+    const nbAbandons = sesLignes.filter((ligne) => ligne.estAbandon).length
+    const penaliteSecs = nbAbandons * PENALITE_ABANDON_SECS
 
-    const checksTrouves = sesLignes.reduce((cumul, ligne) => cumul + (entier(ligne.nbChecks) ?? 0), 0)
+    const totalBrutSecs = bruts.length > 0 ? bruts.reduce((a, b) => a + b, 0) : null
+    const totalSecs = totalBrutSecs === null ? null : totalBrutSecs + penaliteSecs
+
+    const checksTrouves = sesLignes.reduce(
+      (cumul, ligne) => cumul + (entier(ligne.nbChecks) ?? 0),
+      0,
+    )
     const totaux = sesLignes
       .map((ligne) => entier(ligne.totalChecks))
       .filter((valeur): valeur is number => valeur !== null)
@@ -72,38 +98,33 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): ApercuEquipe[] {
       equipeId,
       equipeNom: sesLignes[0].equipeNom,
       totalSecs,
-      estAbandon,
+      totalBrutSecs,
+      penaliteSecs,
+      nbAbandons,
       checksTrouves,
       totalChecks,
       pourcentComplete:
         totalChecks !== null && totalChecks > 0 ? checksTrouves / totalChecks : null,
-      cle: [
-        estAbandon ? 1 : 0,
-        estAbandon ? -checksTrouves : (totalSecs ?? Number.MAX_SAFE_INTEGER),
-        totalSecs ?? Number.MAX_SAFE_INTEGER,
-      ] as const,
     }
   })
 
+  // Les equipes dont le total n est pas encore calculable passent en fin d apercu.
   const ordonnes = agreges.sort(
     (a, b) =>
-      a.cle[0] - b.cle[0] ||
-      a.cle[1] - b.cle[1] ||
-      a.cle[2] - b.cle[2] ||
+      (a.totalSecs ?? Number.MAX_SAFE_INTEGER) - (b.totalSecs ?? Number.MAX_SAFE_INTEGER) ||
       a.equipeNom.localeCompare(b.equipeNom, 'fr'),
   )
 
   let position = 0
-  let clePrecedente: readonly number[] | null = null
+  let totalPrecedent: number | null | undefined
 
   return ordonnes.map((groupe, index) => {
-    if (clePrecedente === null || !memeCle(clePrecedente, groupe.cle)) {
+    if (totalPrecedent === undefined || totalPrecedent !== groupe.totalSecs) {
       position = index + 1
-      clePrecedente = groupe.cle
+      totalPrecedent = groupe.totalSecs
     }
 
-    const { cle: _cle, ...reste } = groupe
-    return { ...reste, position, estGagnante: position === 1 }
+    return { ...groupe, position, estGagnante: position === 1 }
   })
 }
 
@@ -131,6 +152,7 @@ export function versResultats(lignes: readonly LigneSaisie[]): ResultatUpsert[] 
       totalChecks: entier(ligne.totalChecks),
       nbChecks: entier(ligne.nbChecks),
       tempsFinalSecs: temps,
+      estAbandon: ligne.estAbandon,
     })
   }
 
@@ -153,7 +175,10 @@ export function validerLignes(lignes: readonly LigneSaisie[]): string[] {
   if (new Set(nombres).size > 1) {
     const detail = [...effectifs.entries()].map(([nom, n]) => `${n} pour ${nom}`).join(' contre ')
     problemes.push(`Les deux equipes doivent aligner le meme nombre de joueurs : ${detail}.`)
-  } else if (nombres.length > 0 && (nombres[0] < MIN_PARTICIPANTS || nombres[0] > MAX_PARTICIPANTS)) {
+  } else if (
+    nombres.length > 0 &&
+    (nombres[0] < MIN_PARTICIPANTS || nombres[0] > MAX_PARTICIPANTS)
+  ) {
     problemes.push(
       `Chaque equipe doit aligner entre ${MIN_PARTICIPANTS} et ${MAX_PARTICIPANTS} joueurs, ${nombres[0]} selectionne(s).`,
     )
@@ -165,7 +190,11 @@ export function validerLignes(lignes: readonly LigneSaisie[]): string[] {
     }
 
     if (analyserTemps(ligne.temps) === undefined) {
-      problemes.push(`${ligne.joueurNom} : temps invalide (attendu hh:mm:ss, ou vide pour un abandon).`)
+      problemes.push(
+        ligne.estAbandon
+          ? `${ligne.joueurNom} : saisir le temps atteint au moment de l abandon.`
+          : `${ligne.joueurNom} : temps invalide (attendu hh:mm:ss).`,
+      )
     }
 
     const total = entier(ligne.totalChecks)
@@ -185,8 +214,4 @@ function entier(saisie: string): number | null {
   }
 
   return Number(propre)
-}
-
-function memeCle(a: readonly number[], b: readonly number[]): boolean {
-  return a.length === b.length && a.every((valeur, index) => valeur === b[index])
 }

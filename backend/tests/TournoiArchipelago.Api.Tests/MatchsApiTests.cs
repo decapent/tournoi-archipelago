@@ -58,10 +58,10 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, "seed-1", 200, 200, 3_600),
-                new(plateau.Bob.Id, plateau.Metroid.Id, "seed-2", 150, 150, 3_000),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, "seed-3", 200, 180, 4_000),
-                new(plateau.David.Id, plateau.Metroid.Id, "seed-4", 150, 140, 3_500),
+                new(plateau.Alice.Id, plateau.Alttp.Id, "seed-1", 200, 200, 3_600, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, "seed-2", 150, 150, 3_000, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, "seed-3", 200, 180, 4_000, false),
+                new(plateau.David.Id, plateau.Metroid.Id, "seed-4", 150, 140, 3_500, false),
             ]),
             ApiDeTest.Json);
 
@@ -87,7 +87,7 @@ public class MatchsApiTests
     }
 
     [Fact]
-    public async Task Un_temps_vide_enregistre_un_abandon()
+    public async Task Un_abandon_est_penalise_d_une_heure()
     {
         using var api = new ApiDeTest();
         var client = await api.CreerClientAdminAsync();
@@ -100,23 +100,35 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, 200, 200, 60),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, 150, 20, null),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, 200, 200, 20_000),
-                new(plateau.David.Id, plateau.Metroid.Id, null, 150, 150, 20_000),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, 200, 200, 60, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, 150, 20, 60, true),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, 200, 200, 20_000, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, 150, 150, 20_000, false),
             ]),
             ApiDeTest.Json);
 
         reponse.EnsureSuccessStatusCode();
         var match = await reponse.Content.ReadFromJsonAsync<MatchDetailDto>(ApiDeTest.Json);
 
+        // Equipe A : 60 + 60 bruts, plus une heure de penalite, soit 3 720 s.
         var abandonnante = match!.Equipes.Single(e => e.EquipeId == plateau.EquipeA.Id);
-        Assert.True(abandonnante.EstAbandon);
-        Assert.False(abandonnante.EstGagnante);
-        Assert.Equal(2, abandonnante.Position);
-        Assert.Contains(abandonnante.Lignes, ligne => ligne.EstAbandon && ligne.TempsFinalSecs is null);
+        Assert.Equal(1, abandonnante.NbAbandons);
+        Assert.Equal(120, abandonnante.TempsBrutSecs);
+        Assert.Equal(3_600, abandonnante.PenaliteSecs);
+        Assert.Equal(3_720, abandonnante.TempsTotalSecs);
 
-        Assert.True(match.Equipes.Single(e => e.EquipeId == plateau.EquipeB.Id).EstGagnante);
+        var ligneAbandon = Assert.Single(abandonnante.Lignes, ligne => ligne.EstAbandon);
+        Assert.Equal(60, ligneAbandon.TempsFinalSecs);
+        Assert.Equal(3_660, ligneAbandon.TempsEffectifSecs);
+
+        // La penalite etant la sanction, l'equipe A gagne malgre l'abandon :
+        // 3 720 s contre 40 000 s.
+        Assert.True(abandonnante.EstGagnante);
+        Assert.Equal(1, abandonnante.Position);
+
+        var equipeB = match.Equipes.Single(e => e.EquipeId == plateau.EquipeB.Id);
+        Assert.Equal(40_000, equipeB.TempsTotalSecs);
+        Assert.Equal(0, equipeB.PenaliteSecs);
     }
 
     [Fact]
@@ -134,8 +146,8 @@ public class MatchsApiTests
             Resultats:
             [
                 // Un seul joueur de chaque cote : sous le minimum du format qualification.
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Metroid.Id, null, null, null, 100, false),
             ]),
             ApiDeTest.Json);
 
@@ -159,10 +171,10 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(eve.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(eve.Id, plateau.Metroid.Id, null, null, null, 100, false),
             ]),
             ApiDeTest.Json);
 
@@ -187,15 +199,43 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Alice.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Alice.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100, false),
             ]),
             ApiDeTest.Json);
 
         Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
         Assert.Contains("une seule fois par match", await reponse.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Un_temps_non_positif_est_refuse()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var plateau = await PreparerPlateauAsync(api, client);
+
+        var reponse = await client.PostAsJsonAsync("/api/matchs", new MatchUpsertRequest(
+            Date: new DateOnly(2026, 9, 5),
+            Type: TypeMatch.TOURNOI,
+            EquipeAId: plateau.EquipeA.Id,
+            EquipeBId: plateau.EquipeB.Id,
+            Resultats:
+            [
+                // Un abandon porte l'instant ou le joueur a arrete : un temps reste requis.
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 0, true),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100, false),
+            ]),
+            ApiDeTest.Json);
+
+        Assert.Equal(HttpStatusCode.BadRequest, reponse.StatusCode);
+        Assert.Contains(
+            "temps d'abandon doit etre positif",
+            await reponse.Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -212,10 +252,10 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, 100, 150, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, 100, 150, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100, false),
             ]),
             ApiDeTest.Json);
 
@@ -318,14 +358,14 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Arthur.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
-                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200),
-                new(plateau.Damien.Id, plateau.Metroid.Id, null, null, null, 200),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Arthur.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200, false),
+                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200, false),
+                new(plateau.Damien.Id, plateau.Metroid.Id, null, null, null, 200, false),
             ]),
             ApiDeTest.Json);
 
@@ -353,12 +393,12 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
-                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200, false),
+                new(plateau.Claire.Id, plateau.Alttp.Id, null, null, null, 200, false),
             ]),
             ApiDeTest.Json);
 
@@ -384,11 +424,11 @@ public class MatchsApiTests
             Resultats:
             [
                 // Trois joueurs d'un cote, deux de l'autre.
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100),
-                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, null, null, 100, false),
+                new(plateau.Anna.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 200, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 200, false),
             ]),
             ApiDeTest.Json);
 
@@ -441,10 +481,10 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.Bob.Id, plateau.Alttp.Id, null, null, null, 9_000),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100),
-                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.Bob.Id, plateau.Alttp.Id, null, null, null, 9_000, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, null, null, 100, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, null, null, 100, false),
             ]),
             ApiDeTest.Json);
 
@@ -496,10 +536,10 @@ public class MatchsApiTests
             EquipeBId: plateau.EquipeB.Id,
             Resultats:
             [
-                new(plateau.Alice.Id, plateau.Alttp.Id, null, 200, 200, 100),
-                new(plateau.Bob.Id, plateau.Metroid.Id, null, 150, 150, 100),
-                new(plateau.Chloe.Id, plateau.Alttp.Id, null, 200, 200, 500),
-                new(plateau.David.Id, plateau.Metroid.Id, null, 150, 150, 500),
+                new(plateau.Alice.Id, plateau.Alttp.Id, null, 200, 200, 100, false),
+                new(plateau.Bob.Id, plateau.Metroid.Id, null, 150, 150, 100, false),
+                new(plateau.Chloe.Id, plateau.Alttp.Id, null, 200, 200, 500, false),
+                new(plateau.David.Id, plateau.Metroid.Id, null, 150, 150, 500, false),
             ]),
             ApiDeTest.Json);
 

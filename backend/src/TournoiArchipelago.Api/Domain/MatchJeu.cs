@@ -20,17 +20,20 @@ public class MatchJeu
     /// <summary>Nombre de checks trouves par le joueur.</summary>
     public int? NbChecks { get; set; }
 
-    /// <summary>Temps de completion en secondes. <c>null</c> signifie un abandon (DNF).</summary>
-    public int? TempsFinalSecs { get; set; }
+    /// <summary>
+    /// Temps brut en secondes : temps de completion, ou instant de l'abandon quand
+    /// <see cref="EstAbandon"/> est vrai. Toujours renseigne.
+    /// </summary>
+    public int TempsFinalSecs { get; set; }
+
+    /// <summary>Vrai quand le joueur n'a pas termine sa seed.</summary>
+    public bool EstAbandon { get; set; }
 
     public Match? Match { get; set; }
 
     public Jeu? Jeu { get; set; }
 
     public Joueur? Joueur { get; set; }
-
-    /// <summary>Vrai quand le joueur n'a pas termine sa seed.</summary>
-    public bool EstAbandon => TempsFinalSecs is null;
 
     /// <summary>Part des checks trouves, entre 0 et 1. <c>null</c> si le total est inconnu.</summary>
     public double? PourcentComplete =>

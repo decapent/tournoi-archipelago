@@ -7,10 +7,12 @@ namespace TournoiArchipelago.Api.Services;
 /// Regroupe les lignes d'un match par equipe et les classe.
 ///
 /// C'est le seul endroit ou vit la regle de classement :
-///   1. le score d'une equipe est la somme des <c>temps_final_secs</c> de ses participants ;
-///   2. le plus petit total gagne ;
-///   3. une equipe dont au moins un participant a abandonne (temps nul) passe apres toutes
-///      les equipes complettes, et les abandons sont departages par nombre de checks trouves.
+///   1. un joueur qui abandonne compte son temps d'abandon majore de
+///      <see cref="PenaliteAbandonSecs"/> ;
+///   2. le score d'une equipe est la somme des temps ainsi obtenus pour ses participants ;
+///   3. le plus petit total gagne.
+///
+/// La penalite etant la sanction, une equipe avec un abandon est classee comme les autres.
 ///
 /// Le nombre de participants par equipe n'est pas fixe : il se deduit des lignes saisies
 /// (deux en qualification, trois en demi-finale, quatre en finale).
@@ -20,7 +22,14 @@ namespace TournoiArchipelago.Api.Services;
 /// </summary>
 public static class ScoringService
 {
+    /// <summary>Majoration appliquee au temps d'un joueur qui abandonne : une heure.</summary>
+    public const int PenaliteAbandonSecs = 3600;
+
     public const string NomEquipeInconnue = "Sans equipe";
+
+    /// <summary>Temps retenu au classement : le temps brut, majore en cas d'abandon.</summary>
+    public static int TempsEffectifSecs(MatchJeu ligne) =>
+        ligne.TempsFinalSecs + (ligne.EstAbandon ? PenaliteAbandonSecs : 0);
 
     /// <summary>
     /// Classe les equipes presentes dans un match. Les navigations <c>Joueur</c> et <c>Jeu</c>
@@ -45,25 +54,23 @@ public static class ScoringService
             .ToList();
 
         var ordonnes = groupes
-            .OrderBy(g => g.Cle.RangAbandon)
-            .ThenBy(g => g.Cle.CleePrincipale)
-            .ThenBy(g => g.Cle.CleeSecondaire)
+            .OrderBy(g => g.TempsTotalSecs)
             .ThenBy(g => g.Nom, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
         var resultats = new List<EquipeResultatDto>(ordonnes.Count);
         var position = 0;
-        CleTri? clePrecedente = null;
+        int? totalPrecedent = null;
 
         for (var i = 0; i < ordonnes.Count; i++)
         {
             var groupe = ordonnes[i];
 
             // Classement sportif : deux equipes a egalite partagent la meme position.
-            if (clePrecedente is null || !clePrecedente.Value.Equals(groupe.Cle))
+            if (totalPrecedent is null || totalPrecedent != groupe.TempsTotalSecs)
             {
                 position = i + 1;
-                clePrecedente = groupe.Cle;
+                totalPrecedent = groupe.TempsTotalSecs;
             }
 
             resultats.Add(new EquipeResultatDto(
@@ -72,7 +79,9 @@ public static class ScoringService
                 Position: position,
                 EstGagnante: position == 1,
                 TempsTotalSecs: groupe.TempsTotalSecs,
-                EstAbandon: groupe.EstAbandon,
+                TempsBrutSecs: groupe.TempsBrutSecs,
+                PenaliteSecs: groupe.PenaliteSecs,
+                NbAbandons: groupe.NbAbandons,
                 ChecksTrouves: groupe.ChecksTrouves,
                 TotalChecks: groupe.TotalChecks,
                 PourcentComplete: groupe.PourcentComplete,
@@ -84,40 +93,27 @@ public static class ScoringService
 
     private static GroupeEquipe Agreger(Equipe? equipe, List<MatchJeu> lignes)
     {
-        var estAbandon = lignes.Any(l => l.TempsFinalSecs is null);
+        var tempsBrut = lignes.Sum(ligne => ligne.TempsFinalSecs);
+        var nbAbandons = lignes.Count(ligne => ligne.EstAbandon);
+        var penalite = nbAbandons * PenaliteAbandonSecs;
 
-        var tempsRenseignes = lignes.Where(l => l.TempsFinalSecs is not null).ToList();
-        int? tempsTotal = tempsRenseignes.Count > 0
-            ? tempsRenseignes.Sum(l => l.TempsFinalSecs!.Value)
-            : null;
+        var checksTrouves = lignes.Sum(ligne => ligne.NbChecks ?? 0);
 
-        var checksTrouves = lignes.Sum(l => l.NbChecks ?? 0);
-
-        var totauxRenseignes = lignes.Where(l => l.TotalChecks is not null).ToList();
+        var totauxRenseignes = lignes.Where(ligne => ligne.TotalChecks is not null).ToList();
         int? totalChecks = totauxRenseignes.Count > 0
-            ? totauxRenseignes.Sum(l => l.TotalChecks!.Value)
+            ? totauxRenseignes.Sum(ligne => ligne.TotalChecks!.Value)
             : null;
-
-        double? pourcentComplete = totalChecks is > 0
-            ? (double)checksTrouves / totalChecks.Value
-            : null;
-
-        // Une equipe complette est classee sur son temps ; un abandon est departage par ses
-        // checks, d'ou la cle negative qui remet le tri en ordre croissant.
-        var cle = new CleTri(
-            RangAbandon: estAbandon ? 1 : 0,
-            CleePrincipale: estAbandon ? -checksTrouves : tempsTotal ?? int.MaxValue,
-            CleeSecondaire: tempsTotal ?? int.MaxValue);
 
         return new GroupeEquipe(
             EquipeId: equipe?.Id,
             Nom: equipe?.Nom ?? NomEquipeInconnue,
-            EstAbandon: estAbandon,
-            TempsTotalSecs: tempsTotal,
+            TempsBrutSecs: tempsBrut,
+            PenaliteSecs: penalite,
+            TempsTotalSecs: tempsBrut + penalite,
+            NbAbandons: nbAbandons,
             ChecksTrouves: checksTrouves,
             TotalChecks: totalChecks,
-            PourcentComplete: pourcentComplete,
-            Cle: cle,
+            PourcentComplete: totalChecks is > 0 ? (double)checksTrouves / totalChecks.Value : null,
             Lignes: [.. lignes.OrderBy(l => l.Joueur?.Nom ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                               .ThenBy(l => l.JoueurId)
                               .Select(VersLigneDto)]);
@@ -132,19 +128,19 @@ public static class ScoringService
         TotalChecks: ligne.TotalChecks,
         NbChecks: ligne.NbChecks,
         TempsFinalSecs: ligne.TempsFinalSecs,
+        TempsEffectifSecs: TempsEffectifSecs(ligne),
         EstAbandon: ligne.EstAbandon,
         PourcentComplete: ligne.PourcentComplete);
-
-    private readonly record struct CleTri(int RangAbandon, int CleePrincipale, int CleeSecondaire);
 
     private sealed record GroupeEquipe(
         int? EquipeId,
         string Nom,
-        bool EstAbandon,
-        int? TempsTotalSecs,
+        int TempsBrutSecs,
+        int PenaliteSecs,
+        int TempsTotalSecs,
+        int NbAbandons,
         int ChecksTrouves,
         int? TotalChecks,
         double? PourcentComplete,
-        CleTri Cle,
         IReadOnlyList<LigneResultatDto> Lignes);
 }

@@ -22,10 +22,15 @@ internal static class ConstructeurDonnees
         })],
     };
 
+    /// <summary>
+    /// Resultat d'un joueur. <paramref name="tempsFinalSecs"/> est le temps brut : temps de
+    /// completion, ou instant de l'abandon quand <paramref name="estAbandon"/> est vrai.
+    /// </summary>
     public static MatchJeu Ligne(
         Joueur joueur,
         Jeu jeu,
-        int? tempsFinalSecs,
+        int tempsFinalSecs,
+        bool estAbandon = false,
         int? nbChecks = null,
         int? totalChecks = null,
         int matchId = 1,
@@ -40,5 +45,6 @@ internal static class ConstructeurDonnees
         NbChecks = nbChecks,
         TotalChecks = totalChecks,
         TempsFinalSecs = tempsFinalSecs,
+        EstAbandon = estAbandon,
     };
 }

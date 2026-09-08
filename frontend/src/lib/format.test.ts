@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  ABANDON,
+  ABSENT,
   analyserTemps,
   formaterDate,
   formaterNombre,
   formaterPourcent,
   formaterTemps,
-  totaliserEquipe,
 } from './format'
 
 describe('formaterTemps', () => {
@@ -23,9 +22,9 @@ describe('formaterTemps', () => {
     expect(formaterTemps(45296)).toBe('12:34:56')
   })
 
-  it('signale un abandon quand le temps est absent', () => {
-    expect(formaterTemps(null)).toBe(ABANDON)
-    expect(formaterTemps(undefined)).toBe(ABANDON)
+  it('affiche le marqueur d absence quand le temps manque', () => {
+    expect(formaterTemps(null)).toBe(ABSENT)
+    expect(formaterTemps(undefined)).toBe(ABSENT)
   })
 })
 
@@ -42,9 +41,10 @@ describe('analyserTemps', () => {
     expect(analyserTemps('  2:00  ')).toBe(120)
   })
 
-  it('interprete une saisie vide comme un abandon', () => {
-    expect(analyserTemps('')).toBeNull()
-    expect(analyserTemps('   ')).toBeNull()
+  // Un abandon porte l'instant ou le joueur a arrete : un temps reste requis.
+  it('rejette une saisie vide', () => {
+    expect(analyserTemps('')).toBeUndefined()
+    expect(analyserTemps('   ')).toBeUndefined()
   })
 
   it('rejette les saisies invalides', () => {
@@ -56,7 +56,7 @@ describe('analyserTemps', () => {
     expect(analyserTemps('1,5')).toBeUndefined()
   })
 
-  it('rejette un temps nul, qui ne distingue pas un abandon', () => {
+  it('rejette un temps nul', () => {
     expect(analyserTemps('0')).toBeUndefined()
     expect(analyserTemps('00:00')).toBeUndefined()
   })
@@ -75,16 +75,16 @@ describe('formaterPourcent', () => {
     expect(formaterPourcent(0.1234, 2)).toBe('12,34 %')
   })
 
-  it('affiche un tiret quand la part est absente', () => {
-    expect(formaterPourcent(null)).toBe('—')
-    expect(formaterPourcent(undefined)).toBe('—')
+  it('affiche le marqueur d absence quand la part manque', () => {
+    expect(formaterPourcent(null)).toBe(ABSENT)
+    expect(formaterPourcent(undefined)).toBe(ABSENT)
   })
 })
 
 describe('formaterNombre', () => {
   // La locale fr-CA utilise la virgule comme separateur decimal.
-  it('affiche un tiret quand la valeur est absente', () => {
-    expect(formaterNombre(null)).toBe('—')
+  it('affiche le marqueur d absence quand la valeur manque', () => {
+    expect(formaterNombre(null)).toBe(ABSENT)
   })
 
   it('respecte le nombre de decimales demande', () => {
@@ -100,19 +100,5 @@ describe('formaterDate', () => {
 
   it('ignore la partie heure quand elle est presente', () => {
     expect(formaterDate('2026-09-05T00:00:00')).toBe('05-09-2026')
-  })
-})
-
-describe('totaliserEquipe', () => {
-  it('additionne les temps des deux membres', () => {
-    expect(totaliserEquipe([3600, 3000])).toEqual({ totalSecs: 6600, estAbandon: false })
-  })
-
-  it('marque un abandon des qu un membre n a pas de temps', () => {
-    expect(totaliserEquipe([3600, null])).toEqual({ totalSecs: 3600, estAbandon: true })
-  })
-
-  it('ne renvoie aucun total quand personne n a de temps', () => {
-    expect(totaliserEquipe([null, null])).toEqual({ totalSecs: null, estAbandon: true })
   })
 })

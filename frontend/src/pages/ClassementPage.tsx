@@ -17,8 +17,8 @@ export function ClassementPage() {
         <div>
           <h1 className="text-xl font-semibold">Classement general</h1>
           <p className="text-texte-doux mt-1 text-sm">
-            Le score d une equipe est la somme des temps de completion de ses deux joueurs. Le plus
-            petit total gagne le match.
+            Le score d une equipe est la somme des temps de ses participants, chaque abandon
+            comptant son temps majore d une heure. Le plus petit total gagne le match.
           </p>
         </div>
 
@@ -59,6 +59,7 @@ export function ClassementPage() {
                   <th className="num">Checks</th>
                   <th className="num">Completion</th>
                   <th className="num">Abandons</th>
+                  <th className="num">Penalites</th>
                 </tr>
               </thead>
               <tbody>
@@ -81,6 +82,15 @@ export function ClassementPage() {
                         <span className="text-texte-doux">0</span>
                       ) : (
                         <span className="text-alerte">{ligne.abandons}</span>
+                      )}
+                    </td>
+                    <td className="num">
+                      {ligne.penaliteCumuleeSecs === 0 ? (
+                        <span className="text-texte-doux">-</span>
+                      ) : (
+                        <span className="text-alerte">
+                          +{formaterTemps(ligne.penaliteCumuleeSecs)}
+                        </span>
                       )}
                     </td>
                   </tr>

@@ -35,7 +35,8 @@ public class ScoringServiceTests
         Assert.Equal(1, premiere.Position);
         Assert.True(premiere.EstGagnante);
         Assert.Equal(6_600, premiere.TempsTotalSecs);
-        Assert.False(premiere.EstAbandon);
+        Assert.Equal(0, premiere.PenaliteSecs);
+        Assert.Equal(0, premiere.NbAbandons);
 
         var seconde = classement[1];
         Assert.Equal(EquipeB.Id, seconde.EquipeId);
@@ -45,7 +46,96 @@ public class ScoringServiceTests
     }
 
     [Fact]
-    public void Chaque_equipe_regroupe_les_deux_lignes_de_ses_membres()
+    public void Un_abandon_ajoute_une_heure_au_temps_du_joueur()
+    {
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 1_000),
+                Ligne(Bob, Metroid, tempsFinalSecs: 2_000, estAbandon: true),
+            ],
+            [EquipeA]);
+
+        var equipe = Assert.Single(classement);
+
+        Assert.Equal(3_000, equipe.TempsBrutSecs);
+        Assert.Equal(ScoringService.PenaliteAbandonSecs, equipe.PenaliteSecs);
+        Assert.Equal(3_000 + 3_600, equipe.TempsTotalSecs);
+        Assert.Equal(1, equipe.NbAbandons);
+
+        var abandonnee = equipe.Lignes.Single(ligne => ligne.EstAbandon);
+        Assert.Equal(2_000, abandonnee.TempsFinalSecs);
+        Assert.Equal(5_600, abandonnee.TempsEffectifSecs);
+
+        var terminee = equipe.Lignes.Single(ligne => !ligne.EstAbandon);
+        Assert.Equal(1_000, terminee.TempsFinalSecs);
+        Assert.Equal(1_000, terminee.TempsEffectifSecs);
+    }
+
+    [Fact]
+    public void Chaque_abandon_de_l_equipe_est_penalise()
+    {
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 100, estAbandon: true),
+                Ligne(Bob, Metroid, tempsFinalSecs: 200, estAbandon: true),
+            ],
+            [EquipeA]);
+
+        var equipe = Assert.Single(classement);
+
+        Assert.Equal(2, equipe.NbAbandons);
+        Assert.Equal(2 * ScoringService.PenaliteAbandonSecs, equipe.PenaliteSecs);
+        Assert.Equal(300 + 7_200, equipe.TempsTotalSecs);
+    }
+
+    [Fact]
+    public void Une_equipe_avec_un_abandon_est_classee_comme_les_autres()
+    {
+        // Equipe A : 60 s + un abandon a 60 s, soit 60 + 3 660 = 3 720 s.
+        // Equipe B : deux completions a 2 000 s, soit 4 000 s.
+        // La penalite etant la sanction, l'equipe A gagne malgre son abandon.
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 60),
+                Ligne(Bob, Metroid, tempsFinalSecs: 60, estAbandon: true),
+                Ligne(Chloe, Alttp, tempsFinalSecs: 2_000),
+                Ligne(David, Metroid, tempsFinalSecs: 2_000),
+            ],
+            [EquipeA, EquipeB]);
+
+        Assert.Equal(EquipeA.Id, classement[0].EquipeId);
+        Assert.Equal(3_720, classement[0].TempsTotalSecs);
+        Assert.True(classement[0].EstGagnante);
+        Assert.Equal(1, classement[0].NbAbandons);
+
+        Assert.Equal(EquipeB.Id, classement[1].EquipeId);
+        Assert.Equal(4_000, classement[1].TempsTotalSecs);
+    }
+
+    [Fact]
+    public void La_penalite_peut_faire_perdre_une_equipe_pourtant_plus_rapide()
+    {
+        // Equipe A : 100 s bruts, mais un abandon la porte a 3 700 s.
+        // Equipe B : 2 000 s bruts, sans abandon.
+        var classement = ScoringService.ClasserMatch(
+            [
+                Ligne(Alice, Alttp, tempsFinalSecs: 50),
+                Ligne(Bob, Metroid, tempsFinalSecs: 50, estAbandon: true),
+                Ligne(Chloe, Alttp, tempsFinalSecs: 1_000),
+                Ligne(David, Metroid, tempsFinalSecs: 1_000),
+            ],
+            [EquipeA, EquipeB]);
+
+        Assert.Equal(EquipeB.Id, classement[0].EquipeId);
+        Assert.Equal(2_000, classement[0].TempsTotalSecs);
+
+        Assert.Equal(EquipeA.Id, classement[1].EquipeId);
+        Assert.Equal(100, classement[1].TempsBrutSecs);
+        Assert.Equal(3_700, classement[1].TempsTotalSecs);
+    }
+
+    [Fact]
+    public void Chaque_equipe_regroupe_les_lignes_de_ses_membres()
     {
         var classement = ScoringService.ClasserMatch(
             [
@@ -82,55 +172,29 @@ public class ScoringServiceTests
     }
 
     [Fact]
-    public void Une_equipe_avec_un_abandon_passe_apres_une_equipe_complete_plus_lente()
+    public void Une_penalite_peut_creer_une_egalite()
     {
+        // Equipe A : 400 s bruts + 3 600 s de penalite = 4 000 s.
+        // Equipe B : 4 000 s bruts, sans abandon.
         var classement = ScoringService.ClasserMatch(
             [
-                // Equipe A : Bob abandonne, malgre le temps tres rapide d'Alice.
-                Ligne(Alice, Alttp, tempsFinalSecs: 60),
-                Ligne(Bob, Metroid, tempsFinalSecs: null),
-                // Equipe B : les deux terminent, mais lentement.
-                Ligne(Chloe, Alttp, tempsFinalSecs: 20_000),
-                Ligne(David, Metroid, tempsFinalSecs: 20_000),
+                Ligne(Alice, Alttp, tempsFinalSecs: 200),
+                Ligne(Bob, Metroid, tempsFinalSecs: 200, estAbandon: true),
+                Ligne(Chloe, Alttp, tempsFinalSecs: 2_000),
+                Ligne(David, Metroid, tempsFinalSecs: 2_000),
             ],
             [EquipeA, EquipeB]);
 
-        Assert.Equal(EquipeB.Id, classement[0].EquipeId);
-        Assert.True(classement[0].EstGagnante);
-
-        Assert.Equal(EquipeA.Id, classement[1].EquipeId);
-        Assert.True(classement[1].EstAbandon);
-        Assert.False(classement[1].EstGagnante);
-        Assert.Equal(2, classement[1].Position);
+        Assert.All(classement, equipe =>
+        {
+            Assert.Equal(4_000, equipe.TempsTotalSecs);
+            Assert.Equal(1, equipe.Position);
+            Assert.True(equipe.EstGagnante);
+        });
     }
 
     [Fact]
-    public void Entre_deux_abandons_le_plus_grand_nombre_de_checks_trouves_gagne()
-    {
-        var classement = ScoringService.ClasserMatch(
-            [
-                // Equipe A : 40 checks trouves, mais un temps partiel tres rapide.
-                Ligne(Alice, Alttp, tempsFinalSecs: 100, nbChecks: 30),
-                Ligne(Bob, Metroid, tempsFinalSecs: null, nbChecks: 10),
-                // Equipe B : 120 checks trouves.
-                Ligne(Chloe, Alttp, tempsFinalSecs: null, nbChecks: 70),
-                Ligne(David, Metroid, tempsFinalSecs: null, nbChecks: 50),
-            ],
-            [EquipeA, EquipeB]);
-
-        Assert.All(classement, equipe => Assert.True(equipe.EstAbandon));
-
-        Assert.Equal(EquipeB.Id, classement[0].EquipeId);
-        Assert.Equal(120, classement[0].ChecksTrouves);
-        Assert.Equal(1, classement[0].Position);
-
-        Assert.Equal(EquipeA.Id, classement[1].EquipeId);
-        Assert.Equal(40, classement[1].ChecksTrouves);
-        Assert.Equal(2, classement[1].Position);
-    }
-
-    [Fact]
-    public void Le_pourcentage_de_completion_agrege_les_checks_des_deux_joueurs()
+    public void Le_pourcentage_de_completion_agrege_les_checks_des_participants()
     {
         var classement = ScoringService.ClasserMatch(
             [
@@ -234,7 +298,7 @@ public class ScoringServiceTests
         var equipeA = Equipe(10, "Les Nous_", Alice, Bob, eve, gina);
         var equipeB = Equipe(20, "No M's Land", Chloe, David, frank, hugo);
 
-        // Format finale : quatre joueurs de chaque cote.
+        // Format finale : quatre joueurs de chaque cote, dont un abandon cote B.
         var classement = ScoringService.ClasserMatch(
             [
                 Ligne(Alice, Alttp, tempsFinalSecs: 100),
@@ -244,14 +308,16 @@ public class ScoringServiceTests
                 Ligne(Chloe, Alttp, tempsFinalSecs: 50),
                 Ligne(David, Metroid, tempsFinalSecs: 50),
                 Ligne(frank, Alttp, tempsFinalSecs: 50),
-                Ligne(hugo, Metroid, tempsFinalSecs: 50),
+                Ligne(hugo, Metroid, tempsFinalSecs: 50, estAbandon: true),
             ],
             [equipeA, equipeB]);
 
-        Assert.Equal("No M's Land", classement[0].EquipeNom);
-        Assert.Equal(200, classement[0].TempsTotalSecs);
+        Assert.Equal("Les Nous_", classement[0].EquipeNom);
+        Assert.Equal(400, classement[0].TempsTotalSecs);
         Assert.Equal(4, classement[0].Lignes.Count);
-        Assert.Equal(400, classement[1].TempsTotalSecs);
+
+        Assert.Equal(200 + 3_600, classement[1].TempsTotalSecs);
+        Assert.Equal(1, classement[1].NbAbandons);
     }
 
     [Fact]

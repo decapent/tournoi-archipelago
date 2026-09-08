@@ -3,16 +3,18 @@
 const SECONDES_PAR_MINUTE = 60
 const SECONDES_PAR_HEURE = 3600
 
-/** Marqueur affiche a la place d'un temps absent (abandon). */
-export const ABANDON = 'DNF'
+/** Marqueur affiche a la place d'une valeur absente. */
+export const ABSENT = '—'
 
 /**
  * Formate un nombre de secondes en `h:mm:ss`, ou `mm:ss` sous une heure.
- * Renvoie {@link ABANDON} pour une valeur absente.
+ *
+ * Un abandon n'est pas un temps absent : il porte l'instant ou le joueur a arrete, et se
+ * signale par un libelle distinct dans l'interface.
  */
 export function formaterTemps(secondes: number | null | undefined): string {
   if (secondes === null || secondes === undefined) {
-    return ABANDON
+    return ABSENT
   }
 
   const total = Math.max(0, Math.round(secondes))
@@ -28,13 +30,14 @@ export function formaterTemps(secondes: number | null | undefined): string {
 
 /**
  * Lit une duree saisie a la main. Accepte `ss`, `mm:ss` et `hh:mm:ss`.
- * Renvoie `null` pour une saisie vide (abandon) et `undefined` si la saisie est invalide,
- * ce qui permet de distinguer les deux cas dans un formulaire.
+ *
+ * Renvoie `undefined` pour une saisie vide ou invalide : un temps est toujours requis, y
+ * compris pour un abandon.
  */
-export function analyserTemps(saisie: string): number | null | undefined {
+export function analyserTemps(saisie: string): number | undefined {
   const propre = saisie.trim()
   if (propre === '') {
-    return null
+    return undefined
   }
 
   const morceaux = propre.split(':')
@@ -44,7 +47,9 @@ export function analyserTemps(saisie: string): number | null | undefined {
 
   const nombres: number[] = []
   for (const morceau of morceaux) {
-    if (!/^\d{1,3}$/.test(morceau.trim())) {
+    // Le premier segment n'est pas borne a deux chiffres : il porte les heures, ou un nombre
+    // de secondes brut quand la saisie n'a pas de separateur.
+    if (!/^\d{1,6}$/.test(morceau.trim())) {
       return undefined
     }
     nombres.push(Number(morceau.trim()))
@@ -59,19 +64,19 @@ export function analyserTemps(saisie: string): number | null | undefined {
   return total > 0 ? total : undefined
 }
 
-/** Formate une part (0 a 1) en pourcentage, ou `—` si elle est absente. */
+/** Formate une part (0 a 1) en pourcentage, ou le marqueur d'absence. */
 export function formaterPourcent(part: number | null | undefined, decimales = 1): string {
   if (part === null || part === undefined) {
-    return '—'
+    return ABSENT
   }
 
   return `${formaterNombre(part * 100, decimales)} %`
 }
 
-/** Formate un nombre, ou `—` s'il est absent. */
+/** Formate un nombre, ou le marqueur d'absence. */
 export function formaterNombre(valeur: number | null | undefined, decimales = 0): string {
   if (valeur === null || valeur === undefined) {
-    return '—'
+    return ABSENT
   }
 
   return valeur.toLocaleString('fr-CA', {
@@ -86,26 +91,10 @@ export function formaterDate(iso: string): string {
   return `${jour}-${mois}-${annee}`
 }
 
-/** Date du jour au format attendu par l'API et par `<input type="date">`. */
+/** Date du jour au format attendu par l'API et par un champ `input type="date"`. */
 export function dateDuJourIso(): string {
   const maintenant = new Date()
   const mois = String(maintenant.getMonth() + 1).padStart(2, '0')
   const jour = String(maintenant.getDate()).padStart(2, '0')
   return `${maintenant.getFullYear()}-${mois}-${jour}`
-}
-
-/**
- * Total des temps d'une equipe, tel que le calcule le backend : la somme des temps saisis,
- * et un abandon des qu'un membre n'a pas de temps.
- */
-export function totaliserEquipe(temps: readonly (number | null)[]): {
-  totalSecs: number | null
-  estAbandon: boolean
-} {
-  const renseignes = temps.filter((valeur): valeur is number => valeur !== null)
-
-  return {
-    totalSecs: renseignes.length > 0 ? renseignes.reduce((a, b) => a + b, 0) : null,
-    estAbandon: renseignes.length !== temps.length,
-  }
 }

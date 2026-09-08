@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { calculerApercu, validerLignes, versResultats } from './apercuMatch'
+import {
+  PENALITE_ABANDON_SECS,
+  calculerApercu,
+  tempsEffectif,
+  validerLignes,
+  versResultats,
+} from './apercuMatch'
 import type { LigneSaisie } from './apercuMatch'
 
 function ligne(
@@ -16,6 +22,7 @@ function ligne(
     equipeId,
     equipeNom,
     participe: true,
+    estAbandon: false,
     jeuId: 1,
     seed: '',
     totalChecks: '',
@@ -54,6 +61,23 @@ function rosterAvecRemplacants(): LigneSaisie[] {
   ]
 }
 
+describe('tempsEffectif', () => {
+  it('rend le temps saisi quand le joueur a termine', () => {
+    expect(tempsEffectif(ligne(1, 'Moi_Eva', 10, 'Les Nous_', '10:00'))).toBe(600)
+  })
+
+  it('majore le temps d une heure en cas d abandon', () => {
+    const abandon = ligne(1, 'Moi_Eva', 10, 'Les Nous_', '10:00', { estAbandon: true })
+
+    expect(tempsEffectif(abandon)).toBe(600 + PENALITE_ABANDON_SECS)
+  })
+
+  it('ne rend rien quand la saisie est inexploitable', () => {
+    expect(tempsEffectif(ligne(1, 'Moi_Eva', 10, 'Les Nous_', 'abc'))).toBeUndefined()
+    expect(tempsEffectif(ligne(1, 'Moi_Eva', 10, 'Les Nous_', ''))).toBeUndefined()
+  })
+})
+
 describe('calculerApercu', () => {
   it('regroupe par equipe et donne la victoire au plus petit total', () => {
     const apercu = calculerApercu(qualification('1:00:00', '50:00', '1:10:00', '58:00'))
@@ -64,7 +88,8 @@ describe('calculerApercu', () => {
       position: 1,
       estGagnante: true,
       totalSecs: 6600,
-      estAbandon: false,
+      penaliteSecs: 0,
+      nbAbandons: 0,
     })
     expect(apercu[1]).toMatchObject({
       equipeId: EQUIPE_B.id,
@@ -74,12 +99,71 @@ describe('calculerApercu', () => {
     })
   })
 
+  it('ajoute une heure au total pour chaque abandon', () => {
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '10:00'),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '10:00', { estAbandon: true }),
+    ])
+
+    expect(apercu[0]).toMatchObject({
+      totalBrutSecs: 1200,
+      penaliteSecs: PENALITE_ABANDON_SECS,
+      totalSecs: 1200 + PENALITE_ABANDON_SECS,
+      nbAbandons: 1,
+    })
+  })
+
+  it('cumule les penalites de plusieurs abandons', () => {
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
+    ])
+
+    expect(apercu[0]).toMatchObject({
+      totalBrutSecs: 120,
+      penaliteSecs: 2 * PENALITE_ABANDON_SECS,
+      totalSecs: 120 + 2 * PENALITE_ABANDON_SECS,
+      nbAbandons: 2,
+    })
+  })
+
+  it('classe une equipe avec abandon comme les autres', () => {
+    // Equipe A : 2 minutes brutes + 1 h de penalite = 1:02:00.
+    // Equipe B : deux fois 1 h = 2:00:00. La penalite etant la sanction, A gagne.
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '01:00'),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '1:00:00'),
+      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '1:00:00'),
+    ])
+
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 3720, estGagnante: true })
+    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 7200 })
+  })
+
+  it('peut faire perdre une equipe pourtant plus rapide', () => {
+    // Equipe A : 100 s bruts, mais un abandon la porte a 3 700 s.
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '50'),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '50', { estAbandon: true }),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
+      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
+    ])
+
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 1200 })
+    expect(apercu[1]).toMatchObject({
+      equipeId: EQUIPE_A.id,
+      totalBrutSecs: 100,
+      totalSecs: 3700,
+    })
+  })
+
   it('ignore les membres du roster qui ne participent pas', () => {
     const apercu = calculerApercu(rosterAvecRemplacants())
 
     expect(apercu).toHaveLength(2)
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 1200, estAbandon: false })
-    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 2400, estAbandon: false })
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 1200 })
+    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 2400 })
   })
 
   it('additionne les temps de trois participants en demi-finale', () => {
@@ -103,34 +187,24 @@ describe('calculerApercu', () => {
     expect(apercu[1].totalSecs).toBe(240)
   })
 
-  it('classe une equipe avec abandon apres une equipe complete plus lente', () => {
-    const apercu = calculerApercu(qualification('1:00', '', '5:00:00', '5:00:00'))
-
-    expect(apercu[0].equipeId).toBe(EQUIPE_B.id)
-    expect(apercu[1]).toMatchObject({
-      equipeId: EQUIPE_A.id,
-      estAbandon: true,
-      estGagnante: false,
-    })
-  })
-
-  it('departage deux abandons par le nombre de checks trouves', () => {
-    const apercu = calculerApercu([
-      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '', { nbChecks: '30' }),
-      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '', { nbChecks: '10' }),
-      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '', { nbChecks: '70' }),
-      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '', { nbChecks: '50' }),
-    ])
-
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_B.id, checksTrouves: 120, position: 1 })
-    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_A.id, checksTrouves: 40, position: 2 })
-  })
-
   it('fait partager la premiere place en cas d egalite parfaite', () => {
     const apercu = calculerApercu(qualification('10:00', '20:00', '15:00', '15:00'))
 
     expect(apercu.map((equipe) => equipe.position)).toEqual([1, 1])
     expect(apercu.every((equipe) => equipe.estGagnante)).toBe(true)
+  })
+
+  it('peut creer une egalite par la penalite', () => {
+    // Equipe A : 400 s bruts + 3 600 s de penalite = 4 000 s, comme l equipe B.
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '200'),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '200', { estAbandon: true }),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '2000'),
+      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '2000'),
+    ])
+
+    expect(apercu.map((equipe) => equipe.totalSecs)).toEqual([4000, 4000])
+    expect(apercu.every((equipe) => equipe.position === 1 && equipe.estGagnante)).toBe(true)
   })
 
   it('agrege les checks et le pourcentage de completion des participants', () => {
@@ -149,13 +223,25 @@ describe('calculerApercu', () => {
     expect(apercu[0].pourcentComplete).toBeCloseTo(0.3, 6)
   })
 
-  it('traite un temps invalide comme absent sans casser l apercu', () => {
+  it('ignore un temps invalide sans casser l apercu', () => {
     const apercu = calculerApercu(qualification('abc', '10:00', '1:00', '1:00'))
 
     expect(apercu.find((equipe) => equipe.equipeId === EQUIPE_A.id)).toMatchObject({
-      estAbandon: true,
+      totalBrutSecs: 600,
       totalSecs: 600,
     })
+  })
+
+  it('reporte en fin d apercu une equipe dont le total n est pas calculable', () => {
+    const apercu = calculerApercu([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, ''),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, ''),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
+      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
+    ])
+
+    expect(apercu[0].equipeId).toBe(EQUIPE_B.id)
+    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: null })
   })
 
   it('ne renvoie aucun pourcentage quand le total de checks est inconnu', () => {
@@ -187,8 +273,23 @@ describe('versResultats', () => {
         totalChecks: 200,
         nbChecks: 150,
         tempsFinalSecs: 3600,
+        estAbandon: false,
       },
     ])
+  })
+
+  it('transmet le temps brut d un abandon, sans la penalite', () => {
+    const resultats = versResultats([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '10:00', {
+        estAbandon: true,
+        nbChecks: '12',
+      }),
+    ])
+
+    // La penalite est appliquee au classement, pas a la saisie.
+    expect(resultats?.[0].tempsFinalSecs).toBe(600)
+    expect(resultats?.[0].estAbandon).toBe(true)
+    expect(resultats?.[0].nbChecks).toBe(12)
   })
 
   it('exclut les membres du roster qui ne participent pas', () => {
@@ -198,18 +299,17 @@ describe('versResultats', () => {
     expect(resultats?.map((r) => r.joueurId)).toEqual([1, 2, 3, 4])
   })
 
-  it('transmet un abandon avec un temps nul', () => {
-    const resultats = versResultats([
-      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '', { nbChecks: '12' }),
-    ])
-
-    expect(resultats?.[0].tempsFinalSecs).toBeNull()
-    expect(resultats?.[0].nbChecks).toBe(12)
-  })
-
   it('refuse de convertir quand un jeu manque', () => {
     expect(
       versResultats([ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '1:00', { jeuId: null })]),
+    ).toBeNull()
+  })
+
+  it('refuse de convertir quand un temps manque, meme pour un abandon', () => {
+    expect(
+      versResultats([
+        ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '', { estAbandon: true }),
+      ]),
     ).toBeNull()
   })
 
@@ -224,19 +324,23 @@ describe('versResultats', () => {
 
     expect(resultats).toHaveLength(1)
   })
-
-  it('refuse de convertir quand un temps est mal forme', () => {
-    expect(versResultats([ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, 'nope')])).toBeNull()
-  })
 })
 
 describe('validerLignes', () => {
   it('ne signale rien quand la saisie est valide', () => {
-    expect(validerLignes(qualification('1:00', '1:00', '1:00', ''))).toEqual([])
+    expect(validerLignes(qualification('1:00', '1:00', '1:00', '2:00'))).toEqual([])
   })
 
   it('ne signale rien quand des remplacants sont decoches', () => {
     expect(validerLignes(rosterAvecRemplacants())).toEqual([])
+  })
+
+  it('signale un temps manquant sur un abandon', () => {
+    const problemes = validerLignes([
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '', { estAbandon: true }),
+    ])
+
+    expect(problemes.some((p) => p.includes('au moment de l abandon'))).toBe(true)
   })
 
   it('signale un effectif inegal entre les deux equipes', () => {
@@ -245,9 +349,7 @@ describe('validerLignes', () => {
       ligne(5, 'Moi_Flodarien', EQUIPE_A.id, EQUIPE_A.nom, '1:00'),
     ]
 
-    const problemes = validerLignes(lignes)
-
-    expect(problemes.some((p) => p.includes('le meme nombre de joueurs'))).toBe(true)
+    expect(validerLignes(lignes).some((p) => p.includes('le meme nombre de joueurs'))).toBe(true)
   })
 
   it('signale un effectif sous le minimum', () => {
@@ -268,9 +370,7 @@ describe('validerLignes', () => {
   })
 
   it('signale un temps mal forme', () => {
-    const problemes = validerLignes([
-      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '1:2:3:4'),
-    ])
+    const problemes = validerLignes([ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '1:2:3:4')])
 
     expect(problemes.some((p) => p.includes('temps invalide'))).toBe(true)
   })
@@ -283,8 +383,6 @@ describe('validerLignes', () => {
       }),
     ])
 
-    expect(
-      problemes.some((p) => p.includes('150 checks trouves pour un total de 100')),
-    ).toBe(true)
+    expect(problemes.some((p) => p.includes('150 checks trouves pour un total de 100'))).toBe(true)
   })
 })

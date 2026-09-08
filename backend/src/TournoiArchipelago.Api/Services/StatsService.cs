@@ -36,7 +36,7 @@ public class StatsService(TournoiDbContext db)
                 }
 
                 cumul.MatchsJoues++;
-                cumul.TempsCumuleSecs += resultat.TempsTotalSecs ?? 0;
+                cumul.TempsCumuleSecs += resultat.TempsTotalSecs;
                 cumul.ChecksTrouves += resultat.ChecksTrouves;
 
                 if (resultat.EstGagnante)
@@ -44,14 +44,9 @@ public class StatsService(TournoiDbContext db)
                     cumul.Victoires++;
                 }
 
-                if (resultat.EstAbandon)
-                {
-                    cumul.Abandons++;
-                }
-                else if (resultat.TempsTotalSecs is not null)
-                {
-                    cumul.TempsComplets.Add(resultat.TempsTotalSecs.Value);
-                }
+                cumul.Abandons += resultat.NbAbandons;
+                cumul.Penalites += resultat.PenaliteSecs;
+                cumul.TotauxParMatch.Add(resultat.TempsTotalSecs);
 
                 if (resultat.PourcentComplete is not null)
                 {
@@ -67,7 +62,7 @@ public class StatsService(TournoiDbContext db)
             {
                 Equipe = equipe,
                 Cumul = cumul,
-                TempsMoyen = cumul.TempsComplets.Count > 0 ? cumul.TempsComplets.Average() : (double?)null,
+                TempsMoyen = cumul.TotauxParMatch.Count > 0 ? cumul.TotauxParMatch.Average() : (double?)null,
                 PourcentMoyen = cumul.Pourcentages.Count > 0 ? cumul.Pourcentages.Average() : (double?)null,
             };
         });
@@ -96,7 +91,8 @@ public class StatsService(TournoiDbContext db)
             TempsMoyenSecs: l.TempsMoyen,
             ChecksTrouves: l.Cumul.ChecksTrouves,
             PourcentCompleteMoyen: l.PourcentMoyen,
-            Abandons: l.Cumul.Abandons))];
+            Abandons: l.Cumul.Abandons,
+            PenaliteCumuleeSecs: l.Cumul.Penalites))];
     }
 
     public async Task<IReadOnlyList<StatsJeuDto>> StatsParJeuAsync(
@@ -122,9 +118,10 @@ public class StatsService(TournoiDbContext db)
         var stats = jeux.Select(jeu =>
         {
             var lignes = lignesParJeu.GetValueOrDefault(jeu.Id) ?? [];
-            var terminees = lignes.Where(l => l.TempsFinalSecs is not null).ToList();
-            var temps = terminees.Select(l => l.TempsFinalSecs!.Value).OrderBy(t => t).ToList();
-            var meilleure = terminees.MinBy(l => l.TempsFinalSecs!.Value);
+            // Les abandons sont exclus des temps : ils ne mesurent pas une completion.
+            var terminees = lignes.Where(l => !l.EstAbandon).ToList();
+            var temps = terminees.Select(l => l.TempsFinalSecs).OrderBy(t => t).ToList();
+            var meilleure = terminees.MinBy(l => l.TempsFinalSecs);
             var checks = lignes.Where(l => l.NbChecks is not null).Select(l => (double)l.NbChecks!.Value).ToList();
             var pourcentages = lignes.Select(l => l.PourcentComplete).OfType<double>().ToList();
 
@@ -138,7 +135,7 @@ public class StatsService(TournoiDbContext db)
                 MeilleurJoueurNom: meilleure?.Joueur?.Nom,
                 NbChecksMoyen: checks.Count > 0 ? checks.Average() : null,
                 PourcentCompleteMoyen: pourcentages.Count > 0 ? pourcentages.Average() : null,
-                NbAbandons: lignes.Count - terminees.Count);
+                NbAbandons: lignes.Count(l => l.EstAbandon));
         });
 
         return [.. stats
@@ -188,7 +185,10 @@ public class StatsService(TournoiDbContext db)
 
         public int Abandons { get; set; }
 
-        public List<int> TempsComplets { get; } = [];
+        public int Penalites { get; set; }
+
+        /// <summary>Score de l'equipe pour chaque match joue, penalites incluses.</summary>
+        public List<int> TotauxParMatch { get; } = [];
 
         public List<double> Pourcentages { get; } = [];
     }

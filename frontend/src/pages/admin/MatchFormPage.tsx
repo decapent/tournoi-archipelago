@@ -9,7 +9,9 @@ import { dateDuJourIso, formaterPourcent, formaterTemps } from '../../lib/format
 import {
   MAX_PARTICIPANTS,
   MIN_PARTICIPANTS,
+  PENALITE_ABANDON_SECS,
   calculerApercu,
+  tempsEffectif,
   validerLignes,
   versResultats,
 } from './apercuMatch'
@@ -158,7 +160,8 @@ function FormulaireMatch({
         </h1>
         <p className="text-texte-doux mt-1 text-sm">
           Coche les joueurs qui participent : {MIN_PARTICIPANTS} par equipe en qualification, 3 en
-          demi-finale, {MAX_PARTICIPANTS} en finale. Laisse le temps vide pour un abandon.
+          demi-finale, {MAX_PARTICIPANTS} en finale. Un temps est toujours requis ; pour un
+          abandon, saisis le temps atteint et coche la case, une heure de penalite sera ajoutee.
         </p>
       </header>
 
@@ -230,6 +233,8 @@ function FormulaireMatch({
                       <th className="num">Checks trouves</th>
                       <th className="num">Total du jeu</th>
                       <th>Temps</th>
+                      <th className="w-16">Abandon</th>
+                      <th className="num">Retenu</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -311,6 +316,31 @@ function FormulaireMatch({
                               majLigne(ligne.joueurId, { temps: evenement.target.value })
                             }
                           />
+                        </td>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={ligne.estAbandon}
+                            disabled={!ligne.participe}
+                            aria-label={`${ligne.joueurNom} a abandonne`}
+                            onChange={(evenement) =>
+                              majLigne(ligne.joueurId, { estAbandon: evenement.target.checked })
+                            }
+                          />
+                        </td>
+                        <td className="num whitespace-nowrap">
+                          {ligne.participe && (
+                            <>
+                              <span className={ligne.estAbandon ? 'text-alerte' : undefined}>
+                                {formaterTemps(tempsEffectif(ligne))}
+                              </span>
+                              {ligne.estAbandon && (
+                                <span className="text-texte-doux block text-xs">
+                                  +{formaterTemps(PENALITE_ABANDON_SECS)}
+                                </span>
+                              )}
+                            </>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -414,11 +444,16 @@ function Apercu({ apercu }: { apercu: ApercuEquipe[] }) {
             </div>
             <p className="text-texte-doux mt-1 text-xs">
               {equipe.estGagnante ? 'gagnante' : `position ${equipe.position}`}
-              {equipe.estAbandon && ' · abandon'}
               {' · '}
               {equipe.checksTrouves} checks
               {equipe.totalChecks !== null && ` (${formaterPourcent(equipe.pourcentComplete)})`}
             </p>
+            {equipe.nbAbandons > 0 && (
+              <p className="text-alerte mt-1 text-xs">
+                {formaterTemps(equipe.totalBrutSecs)} + {formaterTemps(equipe.penaliteSecs)} de
+                penalite ({equipe.nbAbandons} abandon{equipe.nbAbandons > 1 ? 's' : ''})
+              </p>
+            )}
           </div>
         ))}
       </div>
@@ -455,11 +490,12 @@ function depuisMatch(match: MatchDetail, equipes: Equipe[]): ValeursInitiales {
         equipeId,
         equipeNom: equipe?.nom ?? resultat?.equipeNom ?? '',
         participe: jouee !== undefined,
+        estAbandon: jouee?.estAbandon ?? false,
         jeuId: jouee?.jeuId ?? null,
         seed: jouee?.seed ?? '',
         totalChecks: jouee?.totalChecks == null ? '' : String(jouee.totalChecks),
         nbChecks: jouee?.nbChecks == null ? '' : String(jouee.nbChecks),
-        temps: jouee?.tempsFinalSecs == null ? '' : formaterTemps(jouee.tempsFinalSecs),
+        temps: jouee === undefined ? '' : formaterTemps(jouee.tempsFinalSecs),
       }
     })
   })
@@ -499,6 +535,7 @@ function construireLignes(
         equipeId: equipe.id,
         equipeNom: equipe.nom,
         participe: rang < MIN_PARTICIPANTS,
+        estAbandon: false,
         jeuId: null,
         seed: '',
         totalChecks: '',

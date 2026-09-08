@@ -3,8 +3,9 @@ using TournoiArchipelago.Api.Domain;
 namespace TournoiArchipelago.Api.Contracts;
 
 /// <summary>
-/// Resultat d'un joueur a saisir dans un match. <c>TempsFinalSecs</c> laisse a null
-/// signifie un abandon.
+/// Resultat d'un joueur a saisir dans un match. <c>TempsFinalSecs</c> est toujours requis :
+/// c'est le temps de completion, ou l'instant de l'abandon quand <c>EstAbandon</c> est vrai.
+/// La penalite d'abandon est appliquee au classement, pas a la saisie.
 /// </summary>
 public record ResultatUpsertRequest(
     int JoueurId,
@@ -12,7 +13,8 @@ public record ResultatUpsertRequest(
     string? Seed,
     int? TotalChecks,
     int? NbChecks,
-    int? TempsFinalSecs);
+    int TempsFinalSecs,
+    bool EstAbandon);
 
 /// <summary>
 /// Un match oppose exactement deux equipes, soit quatre lignes de resultat
@@ -33,7 +35,10 @@ public record LigneResultatDto(
     string? Seed,
     int? TotalChecks,
     int? NbChecks,
-    int? TempsFinalSecs,
+    /// <summary>Temps brut saisi : completion, ou instant de l'abandon.</summary>
+    int TempsFinalSecs,
+    /// <summary>Temps retenu au classement, penalite d'abandon incluse.</summary>
+    int TempsEffectifSecs,
     bool EstAbandon,
     double? PourcentComplete);
 
@@ -43,8 +48,13 @@ public record EquipeResultatDto(
     string EquipeNom,
     int Position,
     bool EstGagnante,
-    int? TempsTotalSecs,
-    bool EstAbandon,
+    /// <summary>Score de l'equipe : somme des temps effectifs de ses participants.</summary>
+    int TempsTotalSecs,
+    /// <summary>Somme des temps saisis, avant penalite.</summary>
+    int TempsBrutSecs,
+    /// <summary>Total des penalites d'abandon incluses dans le score.</summary>
+    int PenaliteSecs,
+    int NbAbandons,
     int ChecksTrouves,
     int? TotalChecks,
     double? PourcentComplete,

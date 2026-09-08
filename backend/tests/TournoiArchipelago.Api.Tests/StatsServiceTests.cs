@@ -38,19 +38,19 @@ public class StatsServiceTests
         // Match 1 : equipe A (6 600 s) devant equipe B (7 500 s).
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
         [
-            (donnees.Alice, donnees.Alttp, 3_600, 100, 200),
-            (donnees.Bob, donnees.Metroid, 3_000, 100, 200),
-            (donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
-            (donnees.David, donnees.Metroid, 3_500, 50, 200),
+            new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
+            new(donnees.Bob, donnees.Metroid, 3_000, 100, 200),
+            new(donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 3_500, 50, 200),
         ]);
 
         // Match 2 : equipe B (2 000 s) devant equipe A (5 000 s).
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
         [
-            (donnees.Alice, donnees.Alttp, 2_500, 10, 200),
-            (donnees.Bob, donnees.Metroid, 2_500, 10, 200),
-            (donnees.Chloe, donnees.Alttp, 1_000, 20, 200),
-            (donnees.David, donnees.Metroid, 1_000, 20, 200),
+            new(donnees.Alice, donnees.Alttp, 2_500, 10, 200),
+            new(donnees.Bob, donnees.Metroid, 2_500, 10, 200),
+            new(donnees.Chloe, donnees.Alttp, 1_000, 20, 200),
+            new(donnees.David, donnees.Metroid, 1_000, 20, 200),
         ]);
 
         var service = new StatsService(contexte.Creer());
@@ -86,10 +86,10 @@ public class StatsServiceTests
         // Equipe A gagne, mais avec un temps cumule plus eleve que celui de l'equipe B.
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
         [
-            (donnees.Alice, donnees.Alttp, 100, null, null),
-            (donnees.Bob, donnees.Metroid, 100, null, null),
-            (donnees.Chloe, donnees.Alttp, 1_000, null, null),
-            (donnees.David, donnees.Metroid, null, 5, 100),
+            new(donnees.Alice, donnees.Alttp, 100),
+            new(donnees.Bob, donnees.Metroid, 100),
+            new(donnees.Chloe, donnees.Alttp, 1_000),
+            new(donnees.David, donnees.Metroid, 200, 5, 100, EstAbandon: true),
         ]);
 
         var service = new StatsService(contexte.Creer());
@@ -101,11 +101,12 @@ public class StatsServiceTests
         Assert.Equal("Les Nous_", parTemps[0].EquipeNom);
         Assert.Equal(200, parTemps[0].TempsCumuleSecs);
 
-        // L'equipe B a un abandon : temps moyen absent, mais un abandon comptabilise.
+        // L'equipe B a un abandon : son score inclut la penalite d'une heure.
         var equipeB = parTemps.Single(l => l.EquipeNom == "No M's Land");
         Assert.Equal(1, equipeB.Abandons);
-        Assert.Null(equipeB.TempsMoyenSecs);
-        Assert.Equal(1_000, equipeB.TempsCumuleSecs);
+        Assert.Equal(3_600, equipeB.PenaliteCumuleeSecs);
+        Assert.Equal(1_000 + 200 + 3_600, equipeB.TempsCumuleSecs);
+        Assert.Equal(4_800, equipeB.TempsMoyenSecs);
     }
 
     [Fact]
@@ -116,10 +117,10 @@ public class StatsServiceTests
 
         await AjouterMatchAsync(contexte, TypeMatch.QUALIFICATION, new DateOnly(2026, 8, 1),
         [
-            (donnees.Alice, donnees.Alttp, 100, null, null),
-            (donnees.Bob, donnees.Metroid, 100, null, null),
-            (donnees.Chloe, donnees.Alttp, 900, null, null),
-            (donnees.David, donnees.Metroid, 900, null, null),
+            new(donnees.Alice, donnees.Alttp, 100),
+            new(donnees.Bob, donnees.Metroid, 100),
+            new(donnees.Chloe, donnees.Alttp, 900),
+            new(donnees.David, donnees.Metroid, 900),
         ]);
 
         var service = new StatsService(contexte.Creer());
@@ -146,10 +147,10 @@ public class StatsServiceTests
 
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
         [
-            (donnees.Alice, donnees.Alttp, 100, null, null),
-            (donnees.Bob, donnees.Metroid, 100, null, null),
-            (donnees.Chloe, donnees.Alttp, 900, null, null),
-            (donnees.David, donnees.Metroid, 900, null, null),
+            new(donnees.Alice, donnees.Alttp, 100),
+            new(donnees.Bob, donnees.Metroid, 100),
+            new(donnees.Chloe, donnees.Alttp, 900),
+            new(donnees.David, donnees.Metroid, 900),
         ]);
 
         var service = new StatsService(contexte.Creer());
@@ -168,10 +169,10 @@ public class StatsServiceTests
 
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
         [
-            (donnees.Alice, donnees.Alttp, 100, 40, 200),
-            (donnees.Bob, donnees.Metroid, 500, 100, 200),
-            (donnees.Chloe, donnees.Alttp, 300, 60, 200),
-            (donnees.David, donnees.Alttp, null, 20, 200),
+            new(donnees.Alice, donnees.Alttp, 100, 40, 200),
+            new(donnees.Bob, donnees.Metroid, 500, 100, 200),
+            new(donnees.Chloe, donnees.Alttp, 300, 60, 200),
+            new(donnees.David, donnees.Alttp, 900, 20, 200, EstAbandon: true),
         ]);
 
         var service = new StatsService(contexte.Creer());
@@ -180,6 +181,8 @@ public class StatsServiceTests
         var alttp = stats.Single(s => s.JeuId == donnees.Alttp.Id);
         Assert.Equal(3, alttp.NbParties);
         Assert.Equal(1, alttp.NbAbandons);
+
+        // L'abandon de David (900 s) est exclu des temps : il ne mesure pas une completion.
         Assert.Equal(200, alttp.TempsMoyenSecs);
         Assert.Equal(200, alttp.TempsMedianSecs);
         Assert.Equal(100, alttp.MeilleurTempsSecs);
@@ -247,7 +250,7 @@ public class StatsServiceTests
         ContexteDeTest contexte,
         TypeMatch type,
         DateOnly date,
-        IEnumerable<(Joueur Joueur, Jeu Jeu, int? Temps, int? NbChecks, int? TotalChecks)> lignes)
+        IEnumerable<Saisie> lignes)
     {
         await using var db = contexte.Creer();
 
@@ -255,21 +258,31 @@ public class StatsServiceTests
         db.Matchs.Add(match);
         await db.SaveChangesAsync();
 
-        foreach (var (joueur, jeu, temps, nbChecks, totalChecks) in lignes)
+        foreach (var ligne in lignes)
         {
             db.MatchJeux.Add(new MatchJeu
             {
                 MatchId = match.Id,
-                JeuId = jeu.Id,
-                JoueurId = joueur.Id,
-                TempsFinalSecs = temps,
-                NbChecks = nbChecks,
-                TotalChecks = totalChecks,
+                JeuId = ligne.Jeu.Id,
+                JoueurId = ligne.Joueur.Id,
+                TempsFinalSecs = ligne.Temps,
+                EstAbandon = ligne.EstAbandon,
+                NbChecks = ligne.NbChecks,
+                TotalChecks = ligne.TotalChecks,
             });
         }
 
         await db.SaveChangesAsync();
     }
+
+    /// <summary>Une ligne de resultat a semer. Le temps est toujours renseigne.</summary>
+    private sealed record Saisie(
+        Joueur Joueur,
+        Jeu Jeu,
+        int Temps,
+        int? NbChecks = null,
+        int? TotalChecks = null,
+        bool EstAbandon = false);
 
     private sealed record DonneesSemees(
         Joueur Alice,

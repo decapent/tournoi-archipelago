@@ -14,8 +14,8 @@ Outil de saisie et de statistiques pour un petit tournoi amical d'Archipelago
 |---|---|
 | Roster | Chaque équipe compte **quatre joueurs** ; un joueur n'appartient qu'à une seule équipe |
 | Format d'un match | Toujours **deux équipes**, avec **2 participants** par équipe en qualification, **3** en demi-finale, **4** en finale. Le format n'est pas configuré : il se déduit des lignes saisies, la seule exigence étant que les deux équipes alignent autant de joueurs l'une que l'autre |
-| Score d'une équipe | **Somme des temps de complétion de ses participants** ; le plus petit total gagne |
-| Abandon (DNF) | Temps laissé vide. L'équipe passe après toutes les équipes complètes, les abandons étant départagés par le nombre de checks trouvés |
+| Abandon (DNF) | Le temps saisi est celui **atteint au moment de l'abandon**, majoré d'**une heure de pénalité**. Un temps est donc toujours requis |
+| Score d'une équipe | **Somme des temps ainsi obtenus** pour ses participants ; le plus petit total gagne. La pénalité étant la sanction, une équipe qui abandonne est classée comme les autres |
 | Égalité parfaite | Les deux équipes partagent la première place et comptent chacune une victoire |
 | Type de match | `QUALIFICATION` ou `TOURNOI` |
 | `total_checks` | Nombre total de checks existant dans le jeu |
@@ -78,7 +78,10 @@ Les migrations suivantes :
   ajoute les contraintes d'unicité et sème une douzaine de jeux ;
 - `EquipesDeQuatreJoueursAvecNom` — remplace `Equipe.joueur1_id` / `joueur2_id` par la table de
   liaison `EquipeJoueur`, et ajoute `Equipe.nom` ;
-- `NomsNonVides` — interdit un nom vide sur `Joueur`, `Jeu` et `Equipe`.
+- `NomsNonVides` — interdit un nom vide sur `Joueur`, `Jeu` et `Equipe` ;
+- `PenaliteAbandon` — ajoute `MatchJeu.est_abandon` et rend `temps_final_secs` obligatoire
+  et strictement positif. La pénalité d'une heure est calculée, jamais stockée : le temps
+  d'abandon réel reste donc disponible.
 
 ### 2b. Seed des équipes
 

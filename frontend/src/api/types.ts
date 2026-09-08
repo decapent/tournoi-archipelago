@@ -31,8 +31,10 @@ export interface LigneResultat {
   seed: string | null
   totalChecks: number | null
   nbChecks: number | null
-  /** Null signifie un abandon. */
-  tempsFinalSecs: number | null
+  /** Temps brut : completion, ou instant de l'abandon. */
+  tempsFinalSecs: number
+  /** Temps retenu au classement, penalite d'abandon incluse. */
+  tempsEffectifSecs: number
   estAbandon: boolean
   /** Part des checks trouves, entre 0 et 1. */
   pourcentComplete: number | null
@@ -43,8 +45,13 @@ export interface EquipeResultat {
   equipeNom: string
   position: number
   estGagnante: boolean
-  tempsTotalSecs: number | null
-  estAbandon: boolean
+  /** Score de l'equipe : somme des temps effectifs de ses participants. */
+  tempsTotalSecs: number
+  /** Somme des temps saisis, avant penalite. */
+  tempsBrutSecs: number
+  /** Total des penalites d'abandon incluses dans le score. */
+  penaliteSecs: number
+  nbAbandons: number
   checksTrouves: number
   totalChecks: number | null
   pourcentComplete: number | null
@@ -78,6 +85,8 @@ export interface ClassementEquipe {
   checksTrouves: number
   pourcentCompleteMoyen: number | null
   abandons: number
+  /** Total des penalites d'abandon comprises dans le temps cumule. */
+  penaliteCumuleeSecs: number
 }
 
 export interface StatsJeu {
@@ -99,7 +108,9 @@ export interface ResultatUpsert {
   seed: string | null
   totalChecks: number | null
   nbChecks: number | null
-  tempsFinalSecs: number | null
+  /** Toujours requis : temps de completion, ou instant de l'abandon. */
+  tempsFinalSecs: number
+  estAbandon: boolean
 }
 
 export interface MatchUpsert {

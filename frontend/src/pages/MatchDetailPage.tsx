@@ -85,10 +85,17 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
         </div>
 
         <div className="text-right">
-          <p className="text-lg font-semibold tabular-nums">{formaterTemps(equipe.tempsTotalSecs)}</p>
-          <p className="text-texte-doux text-xs">
-            {equipe.estAbandon ? 'abandon' : 'temps total'}
+          <p className="text-lg font-semibold tabular-nums">
+            {formaterTemps(equipe.tempsTotalSecs)}
           </p>
+          {equipe.nbAbandons > 0 ? (
+            <p className="text-alerte text-xs">
+              {formaterTemps(equipe.tempsBrutSecs)} + {formaterTemps(equipe.penaliteSecs)} de
+              penalite
+            </p>
+          ) : (
+            <p className="text-texte-doux text-xs">temps total</p>
+          )}
         </div>
       </header>
 
@@ -100,6 +107,7 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
             <th className="num">Checks</th>
             <th className="num">Completion</th>
             <th className="num">Temps</th>
+            <th className="num">Retenu</th>
           </tr>
         </thead>
         <tbody>
@@ -119,8 +127,12 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
                 )}
               </td>
               <td className="num">{formaterPourcent(ligne.pourcentComplete)}</td>
-              <td className={`num ${ligne.estAbandon ? 'text-alerte' : ''}`}>
-                {formaterTemps(ligne.tempsFinalSecs)}
+              <td className="num">{formaterTemps(ligne.tempsFinalSecs)}</td>
+              <td className={`num whitespace-nowrap ${ligne.estAbandon ? 'text-alerte' : ''}`}>
+                {formaterTemps(ligne.tempsEffectifSecs)}
+                {ligne.estAbandon && (
+                  <span className="block text-xs">abandon, +1 h</span>
+                )}
               </td>
             </tr>
           ))}
@@ -137,6 +149,7 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
               )}
             </td>
             <td className="num font-semibold">{formaterPourcent(equipe.pourcentComplete)}</td>
+            <td className="num font-semibold">{formaterTemps(equipe.tempsBrutSecs)}</td>
             <td className="num font-semibold">{formaterTemps(equipe.tempsTotalSecs)}</td>
           </tr>
         </tfoot>

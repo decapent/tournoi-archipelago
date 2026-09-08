@@ -320,9 +320,14 @@ public class MatchService(TournoiDbContext db)
                 Ajouter(champ, "Le nombre de checks trouves ne peut pas depasser le total du jeu.");
             }
 
-            if (resultat.TempsFinalSecs is <= 0)
+            // Un abandon porte l'instant ou le joueur a arrete : un temps est donc toujours requis.
+            if (resultat.TempsFinalSecs <= 0)
             {
-                Ajouter(champ, "Le temps de completion doit etre positif, ou vide pour un abandon.");
+                Ajouter(
+                    champ,
+                    resultat.EstAbandon
+                        ? "Le temps d'abandon doit etre positif."
+                        : "Le temps de completion doit etre positif.");
             }
         }
 
@@ -340,6 +345,7 @@ public class MatchService(TournoiDbContext db)
             TotalChecks = resultat.TotalChecks,
             NbChecks = resultat.NbChecks,
             TempsFinalSecs = resultat.TempsFinalSecs,
+            EstAbandon = resultat.EstAbandon,
         })];
     }
 }
