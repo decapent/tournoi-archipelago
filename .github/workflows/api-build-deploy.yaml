@@ -104,7 +104,7 @@ jobs:
             --startup-project src/TournoiArchipelago.Api
 
   deploy-job:
-    name: Deploy API to Azure Container Instances
+    name: Deploy API to Azure Container Apps
     runs-on: ubuntu-latest
     needs: [build-job, migrate-job]
     permissions:
@@ -118,42 +118,43 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ACI ne sait pas changer l'image d'un groupe en place : on supprime puis on recree.
-      # Le groupe peut ne pas exister au premier passage, d'ou le || true. La suppression
-      # libere aussi l'etiquette DNS, que la recreation reprend.
-      - name: Remove previous container group
-        run: |
-          az container delete \
-            --resource-group archipelago \
-            --name archipelago-api \
-            --yes || true
+      - name: Install containerapp extension
+        run: az extension add --name containerapp --upgrade --only-show-errors
 
-      # Les valeurs sensibles passent par --secure-environment-variables : elles n'apparaissent
-      # ni dans le portail ni dans az container show.
-      - name: Create container group
+      # Les secrets sont reposes a chaque deploiement : une rotation se propage sans
+      # intervention manuelle. Ils ne sont jamais exposes en clair dans la revision.
+      - name: Update secrets
         run: |
-          az container create \
-            --resource-group archipelago \
+          az containerapp secret set \
             --name archipelago-api \
+            --resource-group archipelago \
+            --secrets \
+              db-connection="${{ secrets.MIGRATIONS_DB_CONNECTION }}" \
+              admin-password="${{ secrets.ADMIN_PASSWORD }}" \
+              jwt-key="${{ secrets.JWT_KEY }}"
+
+      # L'application doit exister : elle est creee une fois par
+      # deploy/creer-container-apps.sh. Contrairement a ACI, la mise a jour se fait en place,
+      # sans suppression ni coupure.
+      - name: Deploy revision
+        run: |
+          az containerapp update \
+            --name archipelago-api \
+            --resource-group archipelago \
             --image "${{ vars.CONTAINER_REGISTRY }}/archipelago-api:${{ needs.build-job.outputs.image-tag }}" \
-            --registry-login-server ${{ vars.CONTAINER_REGISTRY }} \
-            --registry-username ${{ secrets.ACR_USERNAME }} \
-            --registry-password ${{ secrets.ACR_PASSWORD }} \
-            --dns-name-label ${{ vars.API_DNS_LABEL }} \
-            --ports 8080 \
-            --os-type Linux \
-            --cpu 0.1 --memory 0.5 \
-            --restart-policy Always \
-            --environment-variables ASPNETCORE_ENVIRONMENT=Production \
-            --secure-environment-variables \
-              ConnectionStrings__Tournoi="${{ secrets.MIGRATIONS_DB_CONNECTION }}" \
+            --min-replicas 0 \
+            --max-replicas 2 \
+            --set-env-vars \
+              ASPNETCORE_ENVIRONMENT=Production \
               Admin__Username="${{ vars.ADMIN_USERNAME }}" \
-              Admin__Password="${{ secrets.ADMIN_PASSWORD }}" \
-              Jwt__Key="${{ secrets.JWT_KEY }}"
+              ConnectionStrings__Tournoi=secretref:db-connection \
+              Admin__Password=secretref:admin-password \
+              Jwt__Key=secretref:jwt-key
 
-      - name: Report endpoint
+      # L'API n'a qu'une entree interne : elle n'a pas de FQDN public, et c'est voulu.
+      - name: Report revision
         run: |
-          az container show \
-            --resource-group archipelago \
+          az containerapp show \
             --name archipelago-api \
-            --query "{fqdn:ipAddress.fqdn, etat:instanceView.state}" -o table
+            --resource-group archipelago \
+            --query "{revision:properties.latestRevisionName, interne:properties.configuration.ingress.fqdn}" -o table

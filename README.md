@@ -153,31 +153,51 @@ cd frontend && npm run lint
 ## CI/CD
 
 Deux workflows GitHub Actions : ils construisent l'image, la poussent dans un ACR et déploient
-sur **Azure Container Instances**, un groupe par composant. Déclenchés manuellement
-(`workflow_dispatch`) ou par un push sur `main` touchant `backend/` ou `frontend/`.
+sur **Azure Container Apps**. Déclenchés manuellement (`workflow_dispatch`) ou par un push sur
+`main` touchant `backend/` ou `frontend/`.
 
-- `.github/workflows/api-build-deploy.yaml` — tests, build/push, **migrations EF Core**, déploiement.
+- `.github/workflows/api-build-deploy.yaml` — build/push, **migrations EF Core**, déploiement.
   Le job de migration s'intercale avant le déploiement : une migration en échec bloque la mise en ligne.
 - `.github/workflows/web-build-deploy.yaml` — lint, tests, build/push, déploiement.
 
-ACI ne sait pas changer l'image d'un groupe en place : chaque déploiement **supprime puis
-recrée** le groupe, avec une brève interruption. La suppression libère l'étiquette DNS, que la
-recréation reprend, donc les URLs sont stables.
+Les deux applications vivent dans le même environnement Container Apps :
+
+- **`archipelago-api`** n'a qu'une entrée **interne**. Elle n'est pas exposée sur Internet, et
+  le frontend l'atteint par son nom court, `http://archipelago-api`.
+- **`archipelago-web`** est la seule application publique, avec HTTPS fourni par Azure.
+
+`min-replicas 0` fait dormir les conteneurs quand personne ne s'en sert : la charge d'un tournoi
+amical tient dans le quota mensuel gratuit du plan Consumption. Le prix est un démarrage à froid
+de quelques secondes après une période d'inactivité.
+
+### Création initiale
+
+Les workflows utilisent `az containerapp update`, qui exige que l'application existe. Une seule
+fois :
+
+```sh
+REGISTRE=noresetspeedrun.azurecr.io \
+REGISTRE_UTILISATEUR=... REGISTRE_MOTDEPASSE=... \
+./deploy/creer-container-apps.sh
+```
+
+Container Apps n'est pas disponible dans toutes les régions ; si `canadaeast` est refusé,
+utiliser `REGION=canadacentral`.
 
 ### Configuration requise
 
 L'authentification passe par OIDC (`azure/login@v2`, sans secret de client). L'App Registration
-doit porter une *federated credential* dont le sujet est
-`repo:<compte>/<dépôt>:environment:build`, et le dépôt doit avoir un environnement nommé
-`build`. Le principal a besoin de `AcrPush` sur le registre et de `Contributor` sur le groupe
-de ressources.
+doit porter une *federated credential* dont le sujet correspond exactement à ce que présente le
+runner — `repo:<compte>@<idCompte>/<dépôt>@<idDépôt>:ref:refs/heads/main` pour un déclencheur
+`push` sur `main`. Le principal a besoin de `AcrPush` sur le registre et de `Contributor` sur le
+groupe de ressources.
 
 | Secret | Rôle |
 |---|---|
 | `AZURE_CLIENT_ID` | Application (client) ID de l'App Registration |
 | `AZURE_TENANT_ID` | Tenant Entra ID |
 | `AZURE_SUBSCRIPTION_ID` | Abonnement cible |
-| `ACR_USERNAME` / `ACR_PASSWORD` | Utilisateur admin de l'ACR, dont ACI se sert pour tirer les images |
+| `ACR_USERNAME` / `ACR_PASSWORD` | Utilisateur admin de l'ACR, pour tirer les images |
 | `MIGRATIONS_DB_CONNECTION` | Chaîne de connexion vers Azure SQL. Sert au job de migration **et** à l'API (`ConnectionStrings__Tournoi`) |
 | `ADMIN_PASSWORD` | Mot de passe du panneau d'admin |
 | `JWT_KEY` | Clé de signature des jetons, 32 caractères minimum |
@@ -185,12 +205,11 @@ de ressources.
 | Variable | Rôle |
 |---|---|
 | `CONTAINER_REGISTRY` | Nom du registre, par exemple `monacr.azurecr.io` |
-| `RESOURCE_GROUP` | Groupe de ressources des groupes de conteneurs |
-| `API_IMAGE_REPOSITORY` / `WEB_IMAGE_REPOSITORY` | Dépôts d'images dans l'ACR |
-| `API_CONTAINER_GROUP` / `WEB_CONTAINER_GROUP` | Noms des groupes ACI |
-| `API_DNS_LABEL` / `WEB_DNS_LABEL` | Étiquettes DNS, qui donnent `<label>.<région>.azurecontainer.io` |
 | `ADMIN_USERNAME` | Nom d'utilisateur du panneau d'admin |
-| `API_URL` | Amont du proxy nginx du frontend : `http://<API_DNS_LABEL>.<région>.azurecontainer.io:8080` |
+
+Les noms de groupe de ressources et d'application sont écrits en dur dans les workflows.
+`API_URL` n'est plus une variable : il vaut toujours `http://archipelago-api`, le nom interne de
+l'API dans l'environnement.
 
 L'utilisateur admin de l'ACR doit être activé (`az acr update -n <registre> --admin-enabled true`),
 puis ses identifiants relevés avec `az acr credential show -n <registre>`.
