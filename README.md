@@ -183,10 +183,40 @@ de ressources.
 | `API_CONTAINER_APP` / `WEB_CONTAINER_APP` | Noms des Container Apps |
 | `API_URL` | Amont du proxy nginx du frontend : FQDN de la Container App de l'API |
 
-> **Base de données** — le job de migration exige une base joignable depuis le runner GitHub
-> (pare-feu Azure SQL : « Autoriser les services Azure », ou l'IP du runner), et **baselinée
-> une fois** avec `db/baseline.sql`, faute de quoi `InitialCreate` serait rejouée sur des
-> tables déjà présentes.
+### Base de données Azure SQL
+
+Serveur `noreset.database.windows.net`, base `archipelago`.
+
+Aucun baseline n'est nécessaire : la base a été créée vide, donc `InitialCreate` crée les
+tables et les migrations suivantes les font évoluer. `db/baseline.sql` ne concerne que la base
+locale, dont les tables préexistaient à EF Core.
+
+**1. Utilisateur applicatif** — une fois, avec le compte administrateur du serveur :
+
+```sh
+sqlcmd -S noreset.database.windows.net -d archipelago -U <admin> -P <motDePasseAdmin> \
+       -b -i db/setup-login-azure.sql -v password="<motDePasseApp>"
+```
+
+Azure SQL n'autorise pas `USE` entre bases : le script crée un **utilisateur contenu**, dont le
+mot de passe vit dans la base. Rien n'est créé dans `master`. C'est pourquoi il existe en deux
+versions, `setup-login.sql` (local) et `setup-login-azure.sql`.
+
+**2. Pare-feu** — activer « Autoriser les services Azure et les ressources à accéder à ce
+serveur », sinon le runner GitHub ne peut pas se connecter.
+
+**3. Secret** `MIGRATIONS_DB_CONNECTION` :
+
+```
+Server=tcp:noreset.database.windows.net,1433;Database=archipelago;User ID=tournoi_app;Password=<motDePasseApp>;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
+```
+
+**4. Seed des équipes** — les migrations ne créent que le schéma. Une fois appliquées :
+
+```sh
+sqlcmd -S noreset.database.windows.net -d archipelago -U tournoi_app -P <motDePasseApp> \
+       -b -i db/seed-equipes.sql
+```
 
 > **Frontend** — l'image nginx substitue `API_URL` au démarrage (`envsubst`). La valeur par
 > défaut `http://api:8080` correspond au service de `docker-compose`, ce qui laisse

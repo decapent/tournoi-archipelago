@@ -66,37 +66,42 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max,ignore-error=true
 
-  # migrate-job:
-  #   name: Apply EF Core migrations
-  #   runs-on: ubuntu-latest
-  #   needs: build-job
-  #   permissions:
-  #     contents: read
-  #   steps:
-  #     - name: Checkout code
-  #       uses: actions/checkout@v4
+  migrate-job:
+    name: Apply EF Core migrations
+    runs-on: ubuntu-latest
+    needs: build-job
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  #     - name: Set up .NET
-  #       uses: actions/setup-dotnet@v4
-  #       with:
-  #         dotnet-version: 9.0.x
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
 
-  #     - name: Restore local tools (dotnet-ef)
-  #       working-directory: backend
-  #       run: dotnet tool restore
+      - name: Restore local tools (dotnet-ef)
+        working-directory: backend
+        run: dotnet tool restore
 
-  #     # N'applique que les migrations EN ATTENTE. Une base existante doit avoir ete baselinee
-  #     # une fois (db/baseline.sql) pour qu'InitialCreate ne soit pas rejouee.
-  #     # Exige le secret MIGRATIONS_DB_CONNECTION et que la base accepte les connexions du
-  #     # runner GitHub (pare-feu Azure SQL : "Autoriser les services Azure", ou l'IP du runner).
-  #     - name: Apply database migrations
-  #       working-directory: backend
-  #       env:
-  #         TOURNOI_MIGRATIONS_CONNECTION: ${{ secrets.MIGRATIONS_DB_CONNECTION }}
-  #       run: |
-  #         dotnet ef database update \
-  #           --project src/TournoiArchipelago.Api \
-  #           --startup-project src/TournoiArchipelago.Api
+      # N'applique que les migrations EN ATTENTE, et s'arrete a la premiere erreur : une
+      # migration en echec bloque donc le deploiement.
+      #
+      # Prerequis : le secret MIGRATIONS_DB_CONNECTION, et une base qui accepte les
+      # connexions du runner GitHub (pare-feu Azure SQL : "Autoriser les services Azure").
+      #
+      # Aucun baseline n'est necessaire sur une base vide : InitialCreate cree les tables,
+      # les migrations suivantes les font evoluer. db/baseline.sql ne concerne que la base
+      # locale, dont les tables preexistaient a EF Core.
+      - name: Apply database migrations
+        working-directory: backend
+        env:
+          TOURNOI_MIGRATIONS_CONNECTION: ${{ secrets.MIGRATIONS_DB_CONNECTION }}
+        run: |
+          dotnet ef database update \
+            --project src/TournoiArchipelago.Api \
+            --startup-project src/TournoiArchipelago.Api
 
   # deploy-job:
   #   name: Deploy API to Azure
