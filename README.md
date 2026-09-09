@@ -15,7 +15,7 @@ Outil de saisie et de statistiques pour un petit tournoi amical d'Archipelago
 | Roster | Chaque équipe compte **quatre joueurs** ; un joueur n'appartient qu'à une seule équipe |
 | Format d'un match | Toujours **deux équipes**, avec **2 participants** par équipe en qualification, **3** en demi-finale, **4** en finale. Le format n'est pas configuré : il se déduit des lignes saisies, la seule exigence étant que les deux équipes alignent autant de joueurs l'une que l'autre |
 | Abandon (DNF) | Le temps saisi est celui **atteint au moment de l'abandon**, majoré d'**une heure de pénalité**. Un temps est donc toujours requis |
-| Score d'une équipe | **Somme des temps ainsi obtenus** pour ses participants ; le plus petit total gagne. La pénalité étant la sanction, une équipe qui abandonne est classée comme les autres |
+| Score d'une équipe | **Le plus long des temps ainsi obtenus**, pas leur somme : l'équipe a fini quand son dernier joueur a fini. Le plus petit score gagne. La pénalité étant la sanction, une équipe qui abandonne est classée comme les autres |
 | Égalité parfaite | Les deux équipes partagent la première place et comptent chacune une victoire |
 | Type de match | `QUALIFICATION` ou `TOURNOI` |
 | `total_checks` | Nombre total de checks existant dans le jeu |

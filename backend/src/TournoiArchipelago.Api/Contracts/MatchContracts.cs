@@ -52,13 +52,15 @@ public record EquipeResultatDto(
     int Position,
     bool EstGagnante,
     /// <summary>
-    /// Score de l'equipe : somme des temps effectifs de ses participants. Null tant qu'un
-    /// resultat de l'equipe reste a saisir.
+    /// Score de l'equipe : le plus long des temps effectifs de ses participants, pas leur
+    /// somme. Null tant qu'un resultat de l'equipe reste a saisir.
     /// </summary>
     int? TempsTotalSecs,
-    /// <summary>Somme des temps saisis, avant penalite. Null tant qu'un resultat manque.</summary>
+    /// <summary>Temps brut de la seed determinante, avant penalite.</summary>
     int? TempsBrutSecs,
-    /// <summary>Total des penalites d'abandon incluses dans le score.</summary>
+    /// <summary>
+    /// Penalite portee par la seed determinante : une heure si c'est un abandon, sinon zero.
+    /// </summary>
     int PenaliteSecs,
     int NbAbandons,
     /// <summary>Nombre de participants dont le temps reste a saisir.</summary>

@@ -30,9 +30,9 @@ public class ScoringServiceTests
         var classement = ScoringService.ClasserMatch(Match(EquipeA, EquipeB,
         [
             Ligne(Alice, Alttp, tempsFinalSecs: 3_600),
-            Ligne(Bob, Metroid, tempsFinalSecs: 3_000),   // equipe A : 6 600 s
+            Ligne(Bob, Metroid, tempsFinalSecs: 3_000),   // equipe A : la plus longue, 3 600 s
             Ligne(Chloe, Alttp, tempsFinalSecs: 4_000),
-            Ligne(David, Metroid, tempsFinalSecs: 3_500), // equipe B : 7 500 s
+            Ligne(David, Metroid, tempsFinalSecs: 3_500), // equipe B : la plus longue, 4 000 s
         ]));
 
         Assert.True(classement.EstComplet);
@@ -42,7 +42,7 @@ public class ScoringServiceTests
         Assert.Equal(EquipeA.Id, premiere.EquipeId);
         Assert.Equal(1, premiere.Position);
         Assert.True(premiere.EstGagnante);
-        Assert.Equal(6_600, premiere.TempsTotalSecs);
+        Assert.Equal(3_600, premiere.TempsTotalSecs);
         Assert.Equal(0, premiere.PenaliteSecs);
         Assert.Equal(0, premiere.NbResultatsEnAttente);
 
@@ -50,7 +50,7 @@ public class ScoringServiceTests
         Assert.Equal(EquipeB.Id, seconde.EquipeId);
         Assert.Equal(2, seconde.Position);
         Assert.False(seconde.EstGagnante);
-        Assert.Equal(7_500, seconde.TempsTotalSecs);
+        Assert.Equal(4_000, seconde.TempsTotalSecs);
     }
 
     [Fact]
@@ -93,7 +93,7 @@ public class ScoringServiceTests
         // L'autre equipe a bien son total, meme si le match n'est pas termine.
         var complete = classement.Equipes.Single(e => e.EquipeId == EquipeB.Id);
         Assert.Equal(0, complete.NbResultatsEnAttente);
-        Assert.Equal(10_000, complete.TempsTotalSecs);
+        Assert.Equal(5_000, complete.TempsTotalSecs);
     }
 
     [Fact]
@@ -154,9 +154,10 @@ public class ScoringServiceTests
 
         var equipe = classement.Equipes.Single(e => e.EquipeId == EquipeA.Id);
 
-        Assert.Equal(3_000, equipe.TempsBrutSecs);
+        // La seed la plus longue est celle de Bob : 2 000 s brutes, majorees d'une heure.
+        Assert.Equal(2_000, equipe.TempsBrutSecs);
         Assert.Equal(ScoringService.PenaliteAbandonSecs, equipe.PenaliteSecs);
-        Assert.Equal(3_000 + 3_600, equipe.TempsTotalSecs);
+        Assert.Equal(2_000 + 3_600, equipe.TempsTotalSecs);
         Assert.Equal(1, equipe.NbAbandons);
 
         var abandonnee = equipe.Lignes.Single(ligne => ligne.EstAbandon);
@@ -168,7 +169,7 @@ public class ScoringServiceTests
     }
 
     [Fact]
-    public void Chaque_abandon_de_l_equipe_est_penalise()
+    public void Seule_la_seed_la_plus_longue_determine_le_score()
     {
         var classement = ScoringService.ClasserMatch(Match(EquipeA, EquipeB,
         [
@@ -180,28 +181,30 @@ public class ScoringServiceTests
 
         var equipe = classement.Equipes.Single(e => e.EquipeId == EquipeA.Id);
 
+        // Les deux joueurs ont abandonne, mais seule la seed la plus longue compte : celle
+        // de Bob, 200 s majorees d'une heure. La penalite d'Alice n'entre pas dans le score.
         Assert.Equal(2, equipe.NbAbandons);
-        Assert.Equal(2 * ScoringService.PenaliteAbandonSecs, equipe.PenaliteSecs);
-        Assert.Equal(300 + 7_200, equipe.TempsTotalSecs);
+        Assert.Equal(ScoringService.PenaliteAbandonSecs, equipe.PenaliteSecs);
+        Assert.Equal(200 + 3_600, equipe.TempsTotalSecs);
     }
 
     [Fact]
     public void Une_equipe_avec_un_abandon_est_classee_comme_les_autres()
     {
-        // Equipe A : 60 s + un abandon a 60 s, soit 60 + 3 660 = 3 720 s.
-        // Equipe B : deux completions a 2 000 s, soit 4 000 s.
+        // Equipe A : la seed la plus longue est l'abandon de Bob, 60 + 3 600 = 3 660 s.
+        // Equipe B : la plus longue est 4 000 s.
         // La penalite etant la sanction, l'equipe A gagne malgre son abandon.
         var classement = ScoringService.ClasserMatch(Match(EquipeA, EquipeB,
         [
             Ligne(Alice, Alttp, tempsFinalSecs: 60),
             Ligne(Bob, Metroid, tempsFinalSecs: 60, estAbandon: true),
-            Ligne(Chloe, Alttp, tempsFinalSecs: 2_000),
-            Ligne(David, Metroid, tempsFinalSecs: 2_000),
+            Ligne(Chloe, Alttp, tempsFinalSecs: 4_000),
+            Ligne(David, Metroid, tempsFinalSecs: 4_000),
         ]));
 
         Assert.True(classement.EstComplet);
         Assert.Equal(EquipeA.Id, classement.Equipes[0].EquipeId);
-        Assert.Equal(3_720, classement.Equipes[0].TempsTotalSecs);
+        Assert.Equal(3_660, classement.Equipes[0].TempsTotalSecs);
         Assert.True(classement.Equipes[0].EstGagnante);
         Assert.Equal(4_000, classement.Equipes[1].TempsTotalSecs);
     }
@@ -218,11 +221,12 @@ public class ScoringServiceTests
         ]));
 
         Assert.Equal(EquipeB.Id, classement.Equipes[0].EquipeId);
-        Assert.Equal(2_000, classement.Equipes[0].TempsTotalSecs);
+        Assert.Equal(1_000, classement.Equipes[0].TempsTotalSecs);
 
+        // La seed la plus longue de l'equipe A est l'abandon : 50 s majorees d'une heure.
         Assert.Equal(EquipeA.Id, classement.Equipes[1].EquipeId);
-        Assert.Equal(100, classement.Equipes[1].TempsBrutSecs);
-        Assert.Equal(3_700, classement.Equipes[1].TempsTotalSecs);
+        Assert.Equal(50, classement.Equipes[1].TempsBrutSecs);
+        Assert.Equal(3_650, classement.Equipes[1].TempsTotalSecs);
     }
 
     [Fact]
@@ -231,9 +235,9 @@ public class ScoringServiceTests
         var classement = ScoringService.ClasserMatch(Match(EquipeA, EquipeB,
         [
             Ligne(Alice, Alttp, tempsFinalSecs: 1_000),
-            Ligne(Bob, Metroid, tempsFinalSecs: 2_000),
-            Ligne(Chloe, Alttp, tempsFinalSecs: 1_500),
-            Ligne(David, Metroid, tempsFinalSecs: 1_500),
+            Ligne(Bob, Metroid, tempsFinalSecs: 3_000),
+            Ligne(Chloe, Alttp, tempsFinalSecs: 3_000),
+            Ligne(David, Metroid, tempsFinalSecs: 2_000),
         ]));
 
         Assert.All(classement.Equipes, equipe =>
@@ -247,13 +251,14 @@ public class ScoringServiceTests
     [Fact]
     public void Une_penalite_peut_creer_une_egalite()
     {
-        // Equipe A : 400 s bruts + 3 600 s de penalite = 4 000 s, comme l'equipe B.
+        // Equipe A : l'abandon de Bob donne 400 + 3 600 = 4 000 s, comme la plus longue
+        // seed de l'equipe B.
         var classement = ScoringService.ClasserMatch(Match(EquipeA, EquipeB,
         [
-            Ligne(Alice, Alttp, tempsFinalSecs: 200),
-            Ligne(Bob, Metroid, tempsFinalSecs: 200, estAbandon: true),
-            Ligne(Chloe, Alttp, tempsFinalSecs: 2_000),
-            Ligne(David, Metroid, tempsFinalSecs: 2_000),
+            Ligne(Alice, Alttp, tempsFinalSecs: 100),
+            Ligne(Bob, Metroid, tempsFinalSecs: 400, estAbandon: true),
+            Ligne(Chloe, Alttp, tempsFinalSecs: 4_000),
+            Ligne(David, Metroid, tempsFinalSecs: 1_000),
         ]));
 
         Assert.All(classement.Equipes, equipe =>
@@ -352,9 +357,9 @@ public class ScoringServiceTests
         ]));
 
         Assert.True(classement.EstComplet);
-        Assert.Equal(3_000, classement.Equipes[0].TempsTotalSecs);
+        Assert.Equal(1_000, classement.Equipes[0].TempsTotalSecs);
         Assert.Equal(3, classement.Equipes[0].Lignes.Count);
-        Assert.Equal(6_000, classement.Equipes[1].TempsTotalSecs);
+        Assert.Equal(2_000, classement.Equipes[1].TempsTotalSecs);
     }
 
     [Fact]
@@ -375,10 +380,11 @@ public class ScoringServiceTests
 
         Assert.True(classement.EstComplet);
         Assert.Equal("Les Nous_", classement.Equipes[0].EquipeNom);
-        Assert.Equal(400, classement.Equipes[0].TempsTotalSecs);
+        Assert.Equal(100, classement.Equipes[0].TempsTotalSecs);
         Assert.Equal(4, classement.Equipes[0].Lignes.Count);
 
-        Assert.Equal(200 + 3_600, classement.Equipes[1].TempsTotalSecs);
+        // L'abandon de Damien devient la seed la plus longue de son equipe.
+        Assert.Equal(50 + 3_600, classement.Equipes[1].TempsTotalSecs);
         Assert.Equal(1, classement.Equipes[1].NbAbandons);
     }
 

@@ -40,9 +40,9 @@ export interface ApercuEquipe {
   estGagnante: boolean
   /** Score de l equipe. Null tant qu un temps de l equipe reste a saisir. */
   totalSecs: number | null
-  /** Somme des temps saisis, avant penalite. */
+  /** Temps brut de la seed determinante, avant penalite. */
   totalBrutSecs: number | null
-  /** Total des penalites d abandon incluses dans le score. */
+  /** Penalite portee par la seed determinante : une heure si c est un abandon, sinon zero. */
   penaliteSecs: number
   nbAbandons: number
   nbResultatsEnAttente: number
@@ -88,8 +88,9 @@ export function tempsEffectif(ligne: LigneSaisie): number | null {
 
 /**
  * Reproduit le classement du backend (ScoringService) pour donner un apercu avant l envoi :
- * un abandon compte son temps majore d une heure, on somme les temps ainsi obtenus, et le
- * plus petit total gagne. Tant que le match n est pas complet, aucun vainqueur n est designe.
+ * un abandon compte son temps majore d une heure, le score d une equipe est le plus long des
+ * temps ainsi obtenus, et le plus petit score gagne. Tant que le match n est pas complet,
+ * aucun vainqueur n est designe.
  */
 export function calculerApercu(lignes: readonly LigneSaisie[]): Apercu {
   const groupes = new Map<number, LigneSaisie[]>()
@@ -104,17 +105,27 @@ export function calculerApercu(lignes: readonly LigneSaisie[]): Apercu {
   }
 
   const agreges = [...groupes.entries()].map(([equipeId, sesLignes]) => {
-    const effectifs = sesLignes.map((ligne) => tempsEffectif(ligne))
-    const nbResultatsEnAttente = effectifs.filter((valeur) => valeur === null).length
+    const nbResultatsEnAttente = sesLignes.filter(
+      (ligne) => tempsEffectif(ligne) === null,
+    ).length
 
     const nbAbandons = sesLignes.filter((ligne) => ligne.estAbandon).length
-    const penaliteSecs = nbAbandons * PENALITE_ABANDON_SECS
 
-    // Le score n a de sens qu une fois tous les temps de l equipe saisis.
-    const totalSecs =
-      nbResultatsEnAttente === 0
-        ? effectifs.reduce((cumul: number, valeur) => cumul + (valeur ?? 0), 0)
+    // Le score d une equipe est le temps de sa seed la plus longue : elle a fini quand son
+    // dernier joueur a fini. Il n a de sens qu une fois tous ses temps saisis.
+    const determinante =
+      sesLignes.length > 0 && nbResultatsEnAttente === 0
+        ? sesLignes.reduce((pire, ligne) =>
+            (tempsEffectif(ligne) ?? 0) > (tempsEffectif(pire) ?? 0) ? ligne : pire,
+          )
         : null
+
+    const totalSecs = determinante === null ? null : tempsEffectif(determinante)
+
+    // La penalite exposee est celle de la ligne determinante, pas la somme de toutes : seule
+    // celle-ci entre dans le score, ce qui garde l egalite brut + penalite = total.
+    const penaliteSecs =
+      determinante !== null && determinante.estAbandon ? PENALITE_ABANDON_SECS : 0
 
     const checksTrouves = sesLignes.reduce(
       (cumul, ligne) => cumul + (entier(ligne.nbChecks) ?? 0),
