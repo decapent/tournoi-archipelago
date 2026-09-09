@@ -155,5 +155,5 @@ jobs:
         run: |
           az container show \
             --resource-group archipelago \
-            --name archipelago-api} \
+            --name archipelago-api \
             --query "{fqdn:ipAddress.fqdn, etat:instanceView.state}" -o table
