@@ -94,8 +94,8 @@ jobs:
       - name: Remove previous container group
         run: |
           az container delete \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.WEB_CONTAINER_GROUP }} \
+            --resource-group archipelago \
+            --name archipelago-web \
             --yes || true
 
       # API_URL est l'amont du proxy nginx, substitue au demarrage du conteneur. Les deux
@@ -103,9 +103,9 @@ jobs:
       - name: Create container group
         run: |
           az container create \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.WEB_CONTAINER_GROUP }} \
-            --image "${{ vars.CONTAINER_REGISTRY }}/${{ vars.WEB_IMAGE_REPOSITORY }}:${{ needs.build-job.outputs.image-tag }}" \
+            --resource-group archipelago \
+            --name archipelago-web \
+            --image "${{ vars.CONTAINER_REGISTRY }}/archipelago-web:${{ needs.build-job.outputs.image-tag }}" \
             --registry-login-server ${{ vars.CONTAINER_REGISTRY }} \
             --registry-username ${{ secrets.ACR_USERNAME }} \
             --registry-password ${{ secrets.ACR_PASSWORD }} \
@@ -119,6 +119,6 @@ jobs:
       - name: Report endpoint
         run: |
           az container show \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.WEB_CONTAINER_GROUP }} \
+            --resource-group archipelago \
+            --name archipelago-web \
             --query "{fqdn:ipAddress.fqdn, etat:instanceView.state}" -o table

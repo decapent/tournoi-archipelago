@@ -124,8 +124,8 @@ jobs:
       - name: Remove previous container group
         run: |
           az container delete \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.API_CONTAINER_GROUP }} \
+            --resource-group archipelago \
+            --name archipelago-api \
             --yes || true
 
       # Les valeurs sensibles passent par --secure-environment-variables : elles n'apparaissent
@@ -133,16 +133,16 @@ jobs:
       - name: Create container group
         run: |
           az container create \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.API_CONTAINER_GROUP }} \
-            --image "${{ vars.CONTAINER_REGISTRY }}/${{ vars.API_IMAGE_REPOSITORY }}:${{ needs.build-job.outputs.image-tag }}" \
+            --resource-group archipelago \
+            --name archipelago-api \
+            --image "${{ vars.CONTAINER_REGISTRY }}/archipelago-api:${{ needs.build-job.outputs.image-tag }}" \
             --registry-login-server ${{ vars.CONTAINER_REGISTRY }} \
             --registry-username ${{ secrets.ACR_USERNAME }} \
             --registry-password ${{ secrets.ACR_PASSWORD }} \
             --dns-name-label ${{ vars.API_DNS_LABEL }} \
             --ports 8080 \
             --os-type Linux \
-            --cpu 1 --memory 1.5 \
+            --cpu 0.1 --memory 0.5 \
             --restart-policy Always \
             --environment-variables ASPNETCORE_ENVIRONMENT=Production \
             --secure-environment-variables \
@@ -154,6 +154,6 @@ jobs:
       - name: Report endpoint
         run: |
           az container show \
-            --resource-group ${{ vars.RESOURCE_GROUP }} \
-            --name ${{ vars.API_CONTAINER_GROUP }} \
+            --resource-group archipelago \
+            --name archipelago-api} \
             --query "{fqdn:ipAddress.fqdn, etat:instanceView.state}" -o table
