@@ -52,11 +52,14 @@ export interface EquipeResultat {
   equipeNom: string
   position: number
   estGagnante: boolean
-  /** Score de l'equipe. Null tant qu'un resultat de l'equipe reste a saisir. */
+  /**
+   * Score de l'equipe : le plus long des temps effectifs de ses participants, pas leur somme.
+   * Null tant qu'un resultat de l'equipe reste a saisir.
+   */
   tempsTotalSecs: number | null
-  /** Somme des temps saisis, avant penalite. Null tant qu'un resultat manque. */
+  /** Temps brut de la seed determinante, avant penalite. */
   tempsBrutSecs: number | null
-  /** Total des penalites d'abandon incluses dans le score. */
+  /** Penalite portee par la seed determinante : une heure si c'est un abandon, sinon zero. */
   penaliteSecs: number
   nbAbandons: number
   /** Nombre de participants dont le temps reste a saisir. */

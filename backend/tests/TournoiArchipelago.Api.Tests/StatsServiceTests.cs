@@ -35,7 +35,7 @@ public class StatsServiceTests
         using var contexte = new ContexteDeTest();
         var donnees = await SemerAsync(contexte);
 
-        // Match 1 : equipe A (6 600 s) devant equipe B (7 500 s).
+        // Match 1 : equipe A (seed la plus longue 3 600 s) devant equipe B (4 000 s).
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
         [
             new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
@@ -44,7 +44,7 @@ public class StatsServiceTests
             new(donnees.David, donnees.Metroid, 3_500, 50, 200),
         ]);
 
-        // Match 2 : equipe B (2 000 s) devant equipe A (5 000 s).
+        // Match 2 : equipe B (1 000 s) devant equipe A (2 500 s).
         await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
         [
             new(donnees.Alice, donnees.Alttp, 2_500, 10, 200),
@@ -67,9 +67,10 @@ public class StatsServiceTests
         var equipeA = classement.Single(l => l.EquipeNom == "Les Nous_");
         var equipeB = classement.Single(l => l.EquipeNom == "No M's Land");
 
-        Assert.Equal(11_600, equipeA.TempsCumuleSecs);
-        Assert.Equal(9_500, equipeB.TempsCumuleSecs);
-        Assert.Equal(5_800, equipeA.TempsMoyenSecs);
+        // Le cumul additionne les scores par match, chacun etant la seed la plus longue.
+        Assert.Equal(3_600 + 2_500, equipeA.TempsCumuleSecs);
+        Assert.Equal(4_000 + 1_000, equipeB.TempsCumuleSecs);
+        Assert.Equal(3_050, equipeA.TempsMoyenSecs);
         Assert.Equal(220, equipeA.ChecksTrouves);
 
         // A egalite de victoires, le plus petit temps cumule passe devant.
@@ -99,14 +100,15 @@ public class StatsServiceTests
 
         var parTemps = await service.ClassementAsync(null, TriClassement.Temps);
         Assert.Equal("Les Nous_", parTemps[0].EquipeNom);
-        Assert.Equal(200, parTemps[0].TempsCumuleSecs);
+        Assert.Equal(100, parTemps[0].TempsCumuleSecs);
 
-        // L'equipe B a un abandon : son score inclut la penalite d'une heure.
+        // L'abandon de David (200 s majorees d'une heure) devient la seed la plus longue de
+        // son equipe, devant les 1 000 s de Chloe.
         var equipeB = parTemps.Single(l => l.EquipeNom == "No M's Land");
         Assert.Equal(1, equipeB.Abandons);
         Assert.Equal(3_600, equipeB.PenaliteCumuleeSecs);
-        Assert.Equal(1_000 + 200 + 3_600, equipeB.TempsCumuleSecs);
-        Assert.Equal(4_800, equipeB.TempsMoyenSecs);
+        Assert.Equal(200 + 3_600, equipeB.TempsCumuleSecs);
+        Assert.Equal(3_800, equipeB.TempsMoyenSecs);
     }
 
     [Fact]

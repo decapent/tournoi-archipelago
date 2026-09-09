@@ -9,8 +9,9 @@ namespace TournoiArchipelago.Api.Services;
 /// C'est le seul endroit ou vit la regle de classement :
 ///   1. un joueur qui abandonne compte son temps d'abandon majore de
 ///      <see cref="PenaliteAbandonSecs"/> ;
-///   2. le score d'une equipe est la somme des temps ainsi obtenus pour ses participants ;
-///   3. le plus petit total gagne.
+///   2. le score d'une equipe est le plus long des temps ainsi obtenus, pas leur somme :
+///      l'equipe a fini quand son dernier joueur a fini ;
+///   3. le plus petit score gagne.
 ///
 /// La penalite etant la sanction, une equipe avec un abandon est classee comme les autres.
 ///
@@ -174,11 +175,21 @@ public static class ScoringService
     {
         var nbEnAttente = lignes.Count(ligne => ligne.EstEnAttente);
         var nbAbandons = lignes.Count(ligne => ligne.EstAbandon);
-        var penalite = nbAbandons * PenaliteAbandonSecs;
 
-        // Le score n'a de sens qu'une fois tous les temps de l'equipe saisis.
+        // Le score d'une equipe est le temps de sa seed la plus longue : l'equipe a fini quand
+        // son dernier joueur a fini. Il n'a de sens qu'une fois tous ses temps saisis.
         var tousSaisis = lignes.Count > 0 && nbEnAttente == 0;
-        int? tempsBrut = tousSaisis ? lignes.Sum(ligne => ligne.TempsFinalSecs!.Value) : null;
+        var determinante = tousSaisis
+            ? lignes.MaxBy(ligne => TempsEffectifSecs(ligne)!.Value)
+            : null;
+
+        int? tempsBrut = determinante?.TempsFinalSecs;
+
+        // La penalite exposee est celle de la ligne determinante, pas la somme de toutes :
+        // seule celle-ci entre dans le score, ce qui garde l'egalite brut + penalite = total.
+        var penalite = determinante is null
+            ? 0
+            : determinante.EstAbandon ? PenaliteAbandonSecs : 0;
 
         var checksTrouves = lignes.Sum(ligne => ligne.NbChecks ?? 0);
 

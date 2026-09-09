@@ -74,7 +74,8 @@ public class MatchsApiTests
 
         var gagnante = match.Equipes.Single(e => e.EstGagnante);
         Assert.Equal(plateau.EquipeA.Id, gagnante.EquipeId);
-        Assert.Equal(6_600, gagnante.TempsTotalSecs);
+        // Score = la seed la plus longue de l'equipe, pas la somme des deux.
+        Assert.Equal(3_600, gagnante.TempsTotalSecs);
         Assert.Equal(2, gagnante.Lignes.Count);
 
         // Le match remonte aussi dans l'historique et dans le classement.
@@ -110,24 +111,25 @@ public class MatchsApiTests
         reponse.EnsureSuccessStatusCode();
         var match = await reponse.Content.ReadFromJsonAsync<MatchDetailDto>(ApiDeTest.Json);
 
-        // Equipe A : 60 + 60 bruts, plus une heure de penalite, soit 3 720 s.
+        // La seed la plus longue de l'equipe A est l'abandon de Bob : 60 s majorees d'une
+        // heure, soit 3 660 s.
         var abandonnante = match!.Equipes.Single(e => e.EquipeId == plateau.EquipeA.Id);
         Assert.Equal(1, abandonnante.NbAbandons);
-        Assert.Equal(120, abandonnante.TempsBrutSecs);
+        Assert.Equal(60, abandonnante.TempsBrutSecs);
         Assert.Equal(3_600, abandonnante.PenaliteSecs);
-        Assert.Equal(3_720, abandonnante.TempsTotalSecs);
+        Assert.Equal(3_660, abandonnante.TempsTotalSecs);
 
         var ligneAbandon = Assert.Single(abandonnante.Lignes, ligne => ligne.EstAbandon);
         Assert.Equal(60, ligneAbandon.TempsFinalSecs);
         Assert.Equal(3_660, ligneAbandon.TempsEffectifSecs);
 
         // La penalite etant la sanction, l'equipe A gagne malgre l'abandon :
-        // 3 720 s contre 40 000 s.
+        // 3 660 s contre 20 000 s.
         Assert.True(abandonnante.EstGagnante);
         Assert.Equal(1, abandonnante.Position);
 
         var equipeB = match.Equipes.Single(e => e.EquipeId == plateau.EquipeB.Id);
-        Assert.Equal(40_000, equipeB.TempsTotalSecs);
+        Assert.Equal(20_000, equipeB.TempsTotalSecs);
         Assert.Equal(0, equipeB.PenaliteSecs);
     }
 
@@ -385,8 +387,8 @@ public class MatchsApiTests
         var gagnante = match!.Equipes.Single(e => e.EstGagnante);
         Assert.Equal(plateau.EquipeA.Id, gagnante.EquipeId);
         Assert.Equal(4, gagnante.Lignes.Count);
-        Assert.Equal(400, gagnante.TempsTotalSecs);
-        Assert.Equal(800, match.Equipes.Single(e => !e.EstGagnante).TempsTotalSecs);
+        Assert.Equal(100, gagnante.TempsTotalSecs);
+        Assert.Equal(200, match.Equipes.Single(e => !e.EstGagnante).TempsTotalSecs);
     }
 
     [Fact]
@@ -416,7 +418,7 @@ public class MatchsApiTests
         var match = await reponse.Content.ReadFromJsonAsync<MatchDetailDto>(ApiDeTest.Json);
 
         Assert.All(match!.Equipes, equipe => Assert.Equal(3, equipe.Lignes.Count));
-        Assert.Equal(300, match.Equipes.Single(e => e.EstGagnante).TempsTotalSecs);
+        Assert.Equal(100, match.Equipes.Single(e => e.EstGagnante).TempsTotalSecs);
     }
 
     [Fact]

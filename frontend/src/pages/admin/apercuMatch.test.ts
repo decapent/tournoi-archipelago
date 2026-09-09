@@ -84,7 +84,7 @@ describe('tempsEffectif', () => {
 })
 
 describe('calculerApercu', () => {
-  it('regroupe par equipe et donne la victoire au plus petit total', () => {
+  it('retient la seed la plus longue de chaque equipe, pas la somme', () => {
     const apercu = classer(qualification('1:00:00', '50:00', '1:10:00', '58:00'))
 
     expect(apercu).toHaveLength(2)
@@ -92,7 +92,7 @@ describe('calculerApercu', () => {
       equipeId: EQUIPE_A.id,
       position: 1,
       estGagnante: true,
-      totalSecs: 6600,
+      totalSecs: 3600,
       penaliteSecs: 0,
       nbAbandons: 0,
     })
@@ -100,49 +100,51 @@ describe('calculerApercu', () => {
       equipeId: EQUIPE_B.id,
       position: 2,
       estGagnante: false,
-      totalSecs: 7680,
+      totalSecs: 4200,
     })
   })
 
-  it('ajoute une heure au total pour chaque abandon', () => {
+  it('majore d une heure la seed abandonnee', () => {
     const apercu = classer([
       ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '10:00'),
       ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '10:00', { estAbandon: true }),
     ])
 
+    // L abandon devient la plus longue : 600 s majorees d une heure.
     expect(apercu[0]).toMatchObject({
-      totalBrutSecs: 1200,
+      totalBrutSecs: 600,
       penaliteSecs: PENALITE_ABANDON_SECS,
-      totalSecs: 1200 + PENALITE_ABANDON_SECS,
+      totalSecs: 600 + PENALITE_ABANDON_SECS,
       nbAbandons: 1,
     })
   })
 
-  it('cumule les penalites de plusieurs abandons', () => {
+  it('ne compte que la penalite de la seed determinante', () => {
     const apercu = classer([
       ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
-      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '02:00', { estAbandon: true }),
     ])
 
+    // Les deux ont abandonne, mais seule la plus longue entre dans le score.
     expect(apercu[0]).toMatchObject({
       totalBrutSecs: 120,
-      penaliteSecs: 2 * PENALITE_ABANDON_SECS,
-      totalSecs: 120 + 2 * PENALITE_ABANDON_SECS,
+      penaliteSecs: PENALITE_ABANDON_SECS,
+      totalSecs: 120 + PENALITE_ABANDON_SECS,
       nbAbandons: 2,
     })
   })
 
   it('classe une equipe avec abandon comme les autres', () => {
-    // Equipe A : 2 minutes brutes + 1 h de penalite = 1:02:00.
-    // Equipe B : deux fois 1 h = 2:00:00. La penalite etant la sanction, A gagne.
+    // Equipe A : l abandon donne 60 + 3 600 = 3 660 s, sa plus longue seed.
+    // Equipe B : 2:00:00. La penalite etant la sanction, A gagne quand meme.
     const apercu = classer([
       ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '01:00'),
       ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '01:00', { estAbandon: true }),
-      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '1:00:00'),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '2:00:00'),
       ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '1:00:00'),
     ])
 
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 3720, estGagnante: true })
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 3660, estGagnante: true })
     expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 7200 })
   })
 
@@ -155,11 +157,11 @@ describe('calculerApercu', () => {
       ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
     ])
 
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 1200 })
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 600 })
     expect(apercu[1]).toMatchObject({
       equipeId: EQUIPE_A.id,
-      totalBrutSecs: 100,
-      totalSecs: 3700,
+      totalBrutSecs: 50,
+      totalSecs: 3650,
     })
   })
 
@@ -167,45 +169,45 @@ describe('calculerApercu', () => {
     const apercu = classer(rosterAvecRemplacants())
 
     expect(apercu).toHaveLength(2)
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 1200 })
-    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 2400 })
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 600 })
+    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 1200 })
   })
 
-  it('additionne les temps de trois participants en demi-finale', () => {
+  it('retient la plus longue des trois seeds en demi-finale', () => {
     const apercu = classer([
       ...qualification('5:00', '5:00', '10:00', '10:00'),
       ligne(5, 'Moi_Flodarien', EQUIPE_A.id, EQUIPE_A.nom, '5:00'),
       ligne(7, '_annix86', EQUIPE_B.id, EQUIPE_B.nom, '10:00'),
     ])
 
-    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 900 })
-    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 1800 })
+    expect(apercu[0]).toMatchObject({ equipeId: EQUIPE_A.id, totalSecs: 300 })
+    expect(apercu[1]).toMatchObject({ equipeId: EQUIPE_B.id, totalSecs: 600 })
   })
 
-  it('additionne les temps de quatre participants en finale', () => {
+  it('retient la plus longue des quatre seeds en finale', () => {
     const apercu = classer(
       rosterAvecRemplacants().map((l) => ({ ...l, participe: true, temps: '1:00' })),
     )
 
     expect(apercu).toHaveLength(2)
-    expect(apercu[0].totalSecs).toBe(240)
-    expect(apercu[1].totalSecs).toBe(240)
+    expect(apercu[0].totalSecs).toBe(60)
+    expect(apercu[1].totalSecs).toBe(60)
   })
 
   it('fait partager la premiere place en cas d egalite parfaite', () => {
-    const apercu = classer(qualification('10:00', '20:00', '15:00', '15:00'))
+    const apercu = classer(qualification('10:00', '20:00', '20:00', '15:00'))
 
     expect(apercu.map((equipe) => equipe.position)).toEqual([1, 1])
     expect(apercu.every((equipe) => equipe.estGagnante)).toBe(true)
   })
 
   it('peut creer une egalite par la penalite', () => {
-    // Equipe A : 400 s bruts + 3 600 s de penalite = 4 000 s, comme l equipe B.
+    // Equipe A : l abandon donne 400 + 3 600 = 4 000 s, comme la plus longue seed de B.
     const apercu = classer([
-      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '200'),
-      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '200', { estAbandon: true }),
-      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '2000'),
-      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '2000'),
+      ligne(1, 'Moi_Eva', EQUIPE_A.id, EQUIPE_A.nom, '100'),
+      ligne(2, 'Moi_Sophia', EQUIPE_A.id, EQUIPE_A.nom, '400', { estAbandon: true }),
+      ligne(3, '_oli_an22', EQUIPE_B.id, EQUIPE_B.nom, '4000'),
+      ligne(4, '_C_La_Sorciere', EQUIPE_B.id, EQUIPE_B.nom, '1000'),
     ])
 
     expect(apercu.map((equipe) => equipe.totalSecs)).toEqual([4000, 4000])
@@ -388,7 +390,7 @@ describe('completion du match', () => {
     expect(incomplete).toMatchObject({ totalSecs: null, nbResultatsEnAttente: 1 })
 
     const complete = apercu.equipes.find((equipe) => equipe.equipeId === EQUIPE_B.id)
-    expect(complete).toMatchObject({ totalSecs: 120, nbResultatsEnAttente: 0 })
+    expect(complete).toMatchObject({ totalSecs: 60, nbResultatsEnAttente: 0 })
   })
 })
 
