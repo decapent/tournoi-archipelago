@@ -76,7 +76,7 @@ jobs:
           cache-to: type=gha,mode=max,ignore-error=true
 
   deploy-job:
-    name: Deploy Web to Azure Container Instances
+    name: Deploy Web to Azure Container Apps
     runs-on: ubuntu-latest
     needs: build-job
     permissions:
@@ -90,35 +90,26 @@ jobs:
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
 
-      # ACI ne sait pas changer l'image d'un groupe en place : on supprime puis on recree.
-      - name: Remove previous container group
-        run: |
-          az container delete \
-            --resource-group archipelago \
-            --name archipelago-web \
-            --yes || true
+      - name: Install containerapp extension
+        run: az extension add --name containerapp --upgrade --only-show-errors
 
-      # API_URL est l'amont du proxy nginx, substitue au demarrage du conteneur. Les deux
-      # groupes etant distincts, il s'agit du FQDN public de l'API, port compris.
-      - name: Create container group
+      # API_URL est l'amont du proxy nginx. Les deux applications partagent le meme
+      # environnement Container Apps : le nom court suffit, la resolution est interne et le
+      # trafic ne sort jamais sur Internet. L'entree interne de l'API ecoute sur le port 80
+      # et redirige vers le 8080 du conteneur, d'ou l'absence de port ici.
+      - name: Deploy revision
         run: |
-          az container create \
-            --resource-group archipelago \
+          az containerapp update \
             --name archipelago-web \
+            --resource-group archipelago \
             --image "${{ vars.CONTAINER_REGISTRY }}/archipelago-web:${{ needs.build-job.outputs.image-tag }}" \
-            --registry-login-server ${{ vars.CONTAINER_REGISTRY }} \
-            --registry-username ${{ secrets.ACR_USERNAME }} \
-            --registry-password ${{ secrets.ACR_PASSWORD }} \
-            --dns-name-label ${{ vars.WEB_DNS_LABEL }} \
-            --ports 80 \
-            --os-type Linux \
-            --cpu 1 --memory 1 \
-            --restart-policy Always \
-            --environment-variables API_URL="${{ vars.API_URL }}"
+            --min-replicas 0 \
+            --max-replicas 2 \
+            --set-env-vars API_URL=http://archipelago-api
 
       - name: Report endpoint
         run: |
-          az container show \
-            --resource-group archipelago \
+          az containerapp show \
             --name archipelago-web \
-            --query "{fqdn:ipAddress.fqdn, etat:instanceView.state}" -o table
+            --resource-group archipelago \
+            --query "{revision:properties.latestRevisionName, adresse:properties.configuration.ingress.fqdn}" -o table
