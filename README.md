@@ -152,13 +152,17 @@ cd frontend && npm run lint
 
 ## CI/CD
 
-Deux workflows GitHub Actions, calqués sur ceux de `Decapent.NRS` : ils construisent l'image,
-la poussent dans un ACR et déploient sur une Azure Container App. Déclenchés manuellement
-(`workflow_dispatch`) ou à la fermeture d'une PR sur `main` touchant `backend/` ou `frontend/`.
+Deux workflows GitHub Actions : ils construisent l'image, la poussent dans un ACR et déploient
+sur **Azure Container Instances**, un groupe par composant. Déclenchés manuellement
+(`workflow_dispatch`) ou par un push sur `main` touchant `backend/` ou `frontend/`.
 
 - `.github/workflows/api-build-deploy.yaml` — tests, build/push, **migrations EF Core**, déploiement.
   Le job de migration s'intercale avant le déploiement : une migration en échec bloque la mise en ligne.
 - `.github/workflows/web-build-deploy.yaml` — lint, tests, build/push, déploiement.
+
+ACI ne sait pas changer l'image d'un groupe en place : chaque déploiement **supprime puis
+recrée** le groupe, avec une brève interruption. La suppression libère l'étiquette DNS, que la
+recréation reprend, donc les URLs sont stables.
 
 ### Configuration requise
 
@@ -173,20 +177,61 @@ de ressources.
 | `AZURE_CLIENT_ID` | Application (client) ID de l'App Registration |
 | `AZURE_TENANT_ID` | Tenant Entra ID |
 | `AZURE_SUBSCRIPTION_ID` | Abonnement cible |
-| `MIGRATIONS_DB_CONNECTION` | Chaîne de connexion utilisée par `dotnet ef database update` |
+| `ACR_USERNAME` / `ACR_PASSWORD` | Utilisateur admin de l'ACR, dont ACI se sert pour tirer les images |
+| `MIGRATIONS_DB_CONNECTION` | Chaîne de connexion vers Azure SQL. Sert au job de migration **et** à l'API (`ConnectionStrings__Tournoi`) |
+| `ADMIN_PASSWORD` | Mot de passe du panneau d'admin |
+| `JWT_KEY` | Clé de signature des jetons, 32 caractères minimum |
 
 | Variable | Rôle |
 |---|---|
 | `CONTAINER_REGISTRY` | Nom du registre, par exemple `monacr.azurecr.io` |
-| `RESOURCE_GROUP` | Groupe de ressources des Container Apps |
+| `RESOURCE_GROUP` | Groupe de ressources des groupes de conteneurs |
 | `API_IMAGE_REPOSITORY` / `WEB_IMAGE_REPOSITORY` | Dépôts d'images dans l'ACR |
-| `API_CONTAINER_APP` / `WEB_CONTAINER_APP` | Noms des Container Apps |
-| `API_URL` | Amont du proxy nginx du frontend : FQDN de la Container App de l'API |
+| `API_CONTAINER_GROUP` / `WEB_CONTAINER_GROUP` | Noms des groupes ACI |
+| `API_DNS_LABEL` / `WEB_DNS_LABEL` | Étiquettes DNS, qui donnent `<label>.<région>.azurecontainer.io` |
+| `ADMIN_USERNAME` | Nom d'utilisateur du panneau d'admin |
+| `API_URL` | Amont du proxy nginx du frontend : `http://<API_DNS_LABEL>.<région>.azurecontainer.io:8080` |
 
-> **Base de données** — le job de migration exige une base joignable depuis le runner GitHub
-> (pare-feu Azure SQL : « Autoriser les services Azure », ou l'IP du runner), et **baselinée
-> une fois** avec `db/baseline.sql`, faute de quoi `InitialCreate` serait rejouée sur des
-> tables déjà présentes.
+L'utilisateur admin de l'ACR doit être activé (`az acr update -n <registre> --admin-enabled true`),
+puis ses identifiants relevés avec `az acr credential show -n <registre>`.
+
+Le navigateur n'appelle jamais l'API directement : nginx relaie `/api` côté serveur, donc rien à
+configurer en CORS.
+
+### Base de données Azure SQL
+
+Serveur `noreset.database.windows.net`, base `archipelago`.
+
+Aucun baseline n'est nécessaire : la base a été créée vide, donc `InitialCreate` crée les
+tables et les migrations suivantes les font évoluer. `db/baseline.sql` ne concerne que la base
+locale, dont les tables préexistaient à EF Core.
+
+**1. Utilisateur applicatif** — une fois, avec le compte administrateur du serveur :
+
+```sh
+sqlcmd -S noreset.database.windows.net -d archipelago -U <admin> -P <motDePasseAdmin> \
+       -b -i db/setup-login-azure.sql -v password="<motDePasseApp>"
+```
+
+Azure SQL n'autorise pas `USE` entre bases : le script crée un **utilisateur contenu**, dont le
+mot de passe vit dans la base. Rien n'est créé dans `master`. C'est pourquoi il existe en deux
+versions, `setup-login.sql` (local) et `setup-login-azure.sql`.
+
+**2. Pare-feu** — activer « Autoriser les services Azure et les ressources à accéder à ce
+serveur », sinon le runner GitHub ne peut pas se connecter.
+
+**3. Secret** `MIGRATIONS_DB_CONNECTION` :
+
+```
+Server=tcp:noreset.database.windows.net,1433;Database=archipelago;User ID=tournoi_app;Password=<motDePasseApp>;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;
+```
+
+**4. Seed des équipes** — les migrations ne créent que le schéma. Une fois appliquées :
+
+```sh
+sqlcmd -S noreset.database.windows.net -d archipelago -U tournoi_app -P <motDePasseApp> \
+       -b -i db/seed-equipes.sql
+```
 
 > **Frontend** — l'image nginx substitue `API_URL` au démarrage (`envsubst`). La valeur par
 > défaut `http://api:8080` correspond au service de `docker-compose`, ce qui laisse
