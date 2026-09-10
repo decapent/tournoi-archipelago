@@ -83,7 +83,7 @@ Les migrations suivantes :
   et strictement positif. La pénalité d'une heure est calculée, jamais stockée : le temps
   d'abandon réel reste donc disponible.
 
-### 2b. Seed des équipes
+### 2b. Seed des équipes et des jeux
 
 Les huit équipes du tournoi et leurs trente-deux joueurs :
 
@@ -93,6 +93,19 @@ sqlcmd -S localhost -E -b -d Archipelago -i db/seed-equipes.sql
 
 Le script est idempotent, et refuse de s'exécuter si un joueur de la liste appartient déjà à une
 autre équipe. Aucun match n'est touché.
+
+Les vingt-deux jeux du tournoi :
+
+```sh
+sqlcmd -S localhost -E -b -d Archipelago -i db/seed-jeux.sql
+```
+
+Il ajoute les jeux manquants sans toucher aux identifiants existants, et retire les jeux hors
+liste **uniquement s'ils n'ont jamais été joués** — ceux qui portent des résultats sont conservés
+et signalés. Il remplace ainsi la douzaine de jeux semés par la migration `AjoutNbChecksEtAjustements`.
+
+> `db/seed-jeux.sql` est en **UTF-8 avec BOM** et doit le rester : sans BOM, `sqlcmd` le lit dans
+> la page de codes ANSI et « Pokémon » finit en « PokÃ©mon » dans la base.
 
 ### 3. Développement
 
