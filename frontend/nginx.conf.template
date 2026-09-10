@@ -19,7 +19,17 @@ server {
     location /api/ {
         proxy_pass ${API_URL};
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+
+        # Host doit etre celui de l'amont, pas celui du navigateur : l'ingress de Container
+        # Apps route par en-tete Host, et un Host etranger lui fait rendre une page
+        # "Container App - Unavailable" en 404. $proxy_host vaut l'hote de proxy_pass.
+        proxy_set_header Host $proxy_host;
+
+        # Necessaire si API_URL est en https : sans SNI, la negociation TLS echoue.
+        proxy_ssl_server_name on;
+
+        # L'hote d'origine reste disponible pour l'API, qui n'en a pas besoin aujourd'hui.
+        proxy_set_header X-Forwarded-Host $host;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }

@@ -93,10 +93,28 @@ jobs:
       - name: Install containerapp extension
         run: az extension add --name containerapp --upgrade --only-show-errors
 
-      # API_URL est l'amont du proxy nginx. Les deux applications partagent le meme
-      # environnement Container Apps : le nom court suffit, la resolution est interne et le
-      # trafic ne sort jamais sur Internet. L'entree interne de l'API ecoute sur le port 80
-      # et redirige vers le 8080 du conteneur, d'ou l'absence de port ici.
+      # L'ingress de Container Apps route par en-tete Host. nginx envoie l'hote de son amont
+      # ($proxy_host), il faut donc que API_URL porte exactement le FQDN de l'API : un nom
+      # court ou un hote etranger fait rendre une page "Container App - Unavailable" en 404.
+      #
+      # Le FQDN est lu ici plutot qu'ecrit en dur : il contient le suffixe unique de
+      # l'environnement, et differe selon que l'entree de l'API est interne ou externe.
+      - name: Resolve API address
+        id: api
+        run: |
+          FQDN=$(az containerapp show \
+            --name archipelago-api \
+            --resource-group archipelago \
+            --query properties.configuration.ingress.fqdn -o tsv)
+
+          if [ -z "$FQDN" ]; then
+            echo "L'API n'a pas d'ingress : impossible de determiner son adresse." >&2
+            exit 1
+          fi
+
+          echo "url=https://$FQDN" >> $GITHUB_OUTPUT
+          echo "API joignable a https://$FQDN"
+
       - name: Deploy revision
         run: |
           az containerapp update \
@@ -105,7 +123,7 @@ jobs:
             --image "${{ vars.CONTAINER_REGISTRY }}/archipelago-web:${{ needs.build-job.outputs.image-tag }}" \
             --min-replicas 0 \
             --max-replicas 2 \
-            --set-env-vars API_URL=http://archipelago-api
+            --set-env-vars API_URL=${{ steps.api.outputs.url }}
 
       - name: Report endpoint
         run: |

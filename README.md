@@ -160,11 +160,18 @@ sur **Azure Container Apps**. Déclenchés manuellement (`workflow_dispatch`) ou
   Le job de migration s'intercale avant le déploiement : une migration en échec bloque la mise en ligne.
 - `.github/workflows/web-build-deploy.yaml` — lint, tests, build/push, déploiement.
 
-Les deux applications vivent dans le même environnement Container Apps :
+Les deux applications vivent dans le même environnement Container Apps. `archipelago-web` sert
+le site et relaie `/api` vers `archipelago-api`.
 
-- **`archipelago-api`** n'a qu'une entrée **interne**. Elle n'est pas exposée sur Internet, et
-  le frontend l'atteint par son nom court, `http://archipelago-api`.
-- **`archipelago-web`** est la seule application publique, avec HTTPS fourni par Azure.
+> **L'ingress Container Apps route par en-tête `Host`.** nginx transmet donc l'hôte de son
+> amont (`$proxy_host`), pas celui du navigateur — sinon l'ingress rend une page
+> « Container App - Unavailable » en 404. Corollaire : `API_URL` doit porter le **FQDN exact**
+> de l'API, jamais un nom court. Le workflow le lit avec `az containerapp show` au moment du
+> déploiement, ce qui marche que l'entrée de l'API soit interne ou externe, sans coder en dur
+> le suffixe de l'environnement.
+
+Passer l'API en entrée **interne** la retire d'Internet ; le workflow suivra tout seul, puisque
+`az containerapp show` renverra alors le FQDN interne.
 
 `min-replicas 0` fait dormir les conteneurs quand personne ne s'en sert : la charge d'un tournoi
 amical tient dans le quota mensuel gratuit du plan Consumption. Le prix est un démarrage à froid
