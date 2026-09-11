@@ -486,7 +486,8 @@ function ApercuClassement({ apercu }: { apercu: Apercu }) {
 function brouillonVide(): ValeursInitiales {
   return {
     date: dateDuJourIso(),
-    type: 'TOURNOI',
+    // La phase de qualification represente la grande majorite des matchs saisis.
+    type: 'QUALIFICATION',
     equipeAId: null,
     equipeBId: null,
     lignes: [],
