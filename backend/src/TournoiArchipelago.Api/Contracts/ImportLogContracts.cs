@@ -33,3 +33,32 @@ public record RapportLogDto(
     DateTime? Fin,
     int LignesLues,
     int LignesIgnorees);
+
+/// <summary>Journal soumis pour analyse, sans rien enregistrer.</summary>
+public record AnalyseLogRequest(string? Contenu);
+
+/// <summary>Rapprochement d'un pseudonyme du journal avec un joueur du roster.</summary>
+public record CorrespondanceAliasDto(string Alias, int JoueurId);
+
+/// <summary>
+/// Import d'un journal pour une equipe d'un match. Le depart est commun a tous les joueurs :
+/// c'est de lui que se compte le temps de chacun.
+/// </summary>
+public record ImportLogRequest(
+    string? Contenu,
+    DateTime DepartCourse,
+    IReadOnlyList<CorrespondanceAliasDto>? Correspondances);
+
+/// <summary>Progression d'un joueur, en secondes depuis le depart de la course.</summary>
+public record ProgressionJoueurDto(
+    int JoueurId,
+    string JoueurNom,
+    int? EquipeId,
+    string EquipeNom,
+    string JeuNom,
+    IReadOnlyList<int> Secondes);
+
+/// <summary>Courbes de progression d'un match, pretes a tracer.</summary>
+public record ProgressionMatchDto(
+    int MatchId,
+    IReadOnlyList<ProgressionJoueurDto> Joueurs);
