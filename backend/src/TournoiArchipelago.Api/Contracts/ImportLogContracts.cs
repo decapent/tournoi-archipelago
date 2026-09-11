@@ -29,7 +29,14 @@ public record SignalLogDto(string Signal, int Occurrences, string Exemple);
 public record RapportLogDto(
     IReadOnlyList<JoueurLogDto> Joueurs,
     IReadOnlyList<SignalLogDto> Signaux,
+    /// <summary>Premiere ligne horodatee du journal : le serveur demarre, pas la course.</summary>
     DateTime? Debut,
+    /// <summary>
+    /// Depart approxime au premier check de la course. Les joueurs se connectent longtemps
+    /// avant que l'hote ne lance -- quarante minutes sur le journal de reference -- et le vrai
+    /// depart n'apparait nulle part dans le journal. L'admin corrige au besoin.
+    /// </summary>
+    DateTime? DepartEstime,
     DateTime? Fin,
     int LignesLues,
     int LignesIgnorees);

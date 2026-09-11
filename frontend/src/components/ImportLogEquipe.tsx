@@ -2,6 +2,7 @@ import { useState, type ChangeEvent } from 'react'
 import { useAnalyserLog, useImporterLog } from '../api/hooks'
 import type { EquipeResultat, JoueurLog, RapportLog } from '../api/types'
 import { Erreur } from './Etats'
+import { formaterTemps } from '../lib/format'
 
 /** Choix « ne pas importer ce pseudonyme », valeur du select. */
 const IGNORE = ''
@@ -52,7 +53,9 @@ export function ImportLogEquipe({
       return
     }
 
-    setDepart(lu.debut === null ? '' : lu.debut.slice(0, 16))
+    // Le premier check approxime le depart bien mieux que l'ouverture du serveur.
+    const estime = lu.departEstime ?? lu.debut
+    setDepart(estime === null ? '' : estime.slice(0, 16))
     setCorrespondances(proposerCorrespondances(lu, equipe))
   }
 
@@ -135,6 +138,9 @@ export function ImportLogEquipe({
             />
             <span className="text-texte-doux mt-1 block text-xs">
               Commun a toute l'equipe : c'est de lui que se compte le temps de chacun.
+            </span>
+            <span className="text-texte-doux mt-1 block text-xs">
+              {decrireEstimation(rapport)}
             </span>
           </label>
 
@@ -220,6 +226,29 @@ export function ImportLogEquipe({
         </>
       )}
     </article>
+  )
+}
+
+/**
+ * Explique d'ou vient le depart propose, et combien d'attente il retranche.
+ *
+ * Le vrai depart n'est nulle part dans le journal : les joueurs se connectent puis patientent,
+ * parfois quarante minutes, que l'hote lance. Le premier check en tient lieu, a quelques
+ * minutes pres — celles qu'il faut au plus rapide pour trouver sa premiere localisation.
+ */
+function decrireEstimation(rapport: RapportLog): string {
+  if (rapport.departEstime === null || rapport.debut === null) {
+    return "Aucun check dans le journal : le depart ne peut pas etre approxime."
+  }
+
+  const attente = Math.round(
+    (Date.parse(rapport.departEstime) - Date.parse(rapport.debut)) / 1_000,
+  )
+
+  return (
+    `Approxime au premier check, ${formaterTemps(attente)} apres l'ouverture du serveur a ` +
+    `${formaterHeure(rapport.debut)}. L'attente avant le lancement de l'hote n'est donc pas ` +
+    `comptee. Ajuste si tu connais l'heure exacte.`
   )
 }
 

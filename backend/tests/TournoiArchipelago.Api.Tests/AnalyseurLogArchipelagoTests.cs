@@ -33,6 +33,78 @@ public class AnalyseurLogArchipelagoTests
         rapport.Joueurs.Single(j => j.Alias == alias);
 
     [Fact]
+    public void Le_depart_est_estime_au_premier_check_pas_a_l_ouverture_du_serveur()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(Journal);
+
+        // Le serveur ouvre a 22:46:55 et les joueurs se connectent aussitot, mais l'hote ne
+        // lance qu'a 23:00 : treize minutes d'attente qui ne comptent pas dans la course.
+        Assert.Equal(new DateTime(2026, 9, 3, 22, 46, 55, 884), rapport.Debut);
+        Assert.Equal(new DateTime(2026, 9, 3, 23, 0, 0), rapport.DepartEstime);
+    }
+
+    [Fact]
+    public void Un_check_isole_avant_le_depart_ne_fixe_pas_le_depart()
+    {
+        // Un joueur tatonne a 22:50, puis plus rien pendant une heure : la course commence
+        // vraiment a 23:50.
+        var journal = """
+            [2026-09-03 22:40:00,000]: Notice (all): ALPHA (Team #1) playing Doom has joined. Client(0.6.7), ['AP'].
+            [2026-09-03 22:50:00,000]: (Team #1) ALPHA sent Sword to ALPHA (Lieu 1)
+            [2026-09-03 23:50:00,000]: (Team #1) ALPHA sent Bow to ALPHA (Lieu 2)
+            [2026-09-03 23:52:00,000]: (Team #1) ALPHA sent Key to ALPHA (Lieu 3)
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+
+        Assert.Equal(new DateTime(2026, 9, 3, 23, 50, 0), rapport.DepartEstime);
+    }
+
+    [Fact]
+    public void Sans_aucun_check_le_depart_reste_inconnu()
+    {
+        var journal = """
+            [2026-09-03 22:40:00,000]: Hosting game at archipelago.gg:42009
+            [2026-09-03 22:41:00,000]: Notice (all): ALPHA (Team #1) playing Doom has joined. Client(0.6.7), ['AP'].
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+
+        Assert.Null(rapport.DepartEstime);
+        Assert.NotNull(rapport.Debut);
+    }
+
+    [Fact]
+    public void Un_seul_check_dans_le_journal_fixe_le_depart()
+    {
+        var journal = """
+            [2026-09-03 22:40:00,000]: Notice (all): ALPHA (Team #1) playing Doom has joined. Client(0.6.7), ['AP'].
+            [2026-09-03 23:10:00,000]: (Team #1) ALPHA sent Sword to ALPHA (Lieu 1)
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+
+        Assert.Equal(new DateTime(2026, 9, 3, 23, 10, 0), rapport.DepartEstime);
+    }
+
+    [Fact]
+    public void Le_depart_estime_tient_compte_de_tous_les_joueurs()
+    {
+        // Le plus rapide a trouver sa premiere localisation donne le repere, meme si un autre
+        // joueur met une demi-heure a demarrer.
+        var journal = """
+            [2026-09-03 22:40:00,000]: Notice (all): ALPHA (Team #1) playing Doom has joined. Client(0.6.7), ['AP'].
+            [2026-09-03 22:40:01,000]: Notice (all): BETA (Team #1) playing Jigsaw has joined. Client(0.6.7), ['AP'].
+            [2026-09-03 23:05:00,000]: (Team #1) BETA sent Sword to ALPHA (Lieu 1)
+            [2026-09-03 23:06:00,000]: (Team #1) ALPHA sent Bow to BETA (Lieu 2)
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+
+        Assert.Equal(new DateTime(2026, 9, 3, 23, 5, 0), rapport.DepartEstime);
+    }
+
+    [Fact]
     public void Le_check_est_credite_a_l_expediteur_pas_au_destinataire()
     {
         var rapport = AnalyseurLogArchipelago.Analyser(Journal);
