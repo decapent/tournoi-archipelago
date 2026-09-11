@@ -176,7 +176,13 @@ export interface SignalLog {
 export interface RapportLog {
   joueurs: JoueurLog[]
   signaux: SignalLog[]
+  /** Premiere ligne horodatee : le serveur demarre, pas la course. */
   debut: string | null
+  /**
+   * Depart approxime au premier check. Les joueurs attendent longtemps que l'hote lance, et
+   * le vrai depart n'apparait nulle part dans le journal.
+   */
+  departEstime: string | null
   fin: string | null
   lignesLues: number
   lignesIgnorees: number

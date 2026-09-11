@@ -139,9 +139,49 @@ public static partial class AnalyseurLogArchipelago
                 .OrderByDescending(s => s.Occurrences)
                 .ThenBy(s => s.Signal, StringComparer.Ordinal)],
             Debut: evenements.Count > 0 ? evenements[0].Horodatage : null,
+            DepartEstime: EstimerDepart(joueurs),
             Fin: evenements.Count > 0 ? evenements[^1].Horodatage : null,
             LignesLues: lignesLues,
             LignesIgnorees: lignesIgnorees);
+    }
+
+    /// <summary>
+    /// Silence au-dela duquel un check n'est plus considere comme faisant partie de la course.
+    /// Une fois l'hote parti, les checks tombent sans repit : sur les deux journaux de
+    /// reference, aucun silence de plus de trois minutes dans les trente premiers checks.
+    /// </summary>
+    private static readonly TimeSpan SilenceHorsCourse = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// Approxime le depart au premier check de la course.
+    ///
+    /// Le vrai depart n'est nulle part dans le journal : seul l'hote le connait. Mais rien ne
+    /// se passe avant qu'il ne lance, alors que les joueurs sont connectes depuis longtemps —
+    /// quarante minutes d'attente sur le journal de reference. Le premier check marque donc le
+    /// depart a quelques minutes pres, celles qu'il faut au plus rapide pour trouver sa
+    /// premiere localisation.
+    ///
+    /// Un joueur qui tatonne avant le depart produirait un check isole, suivi d'un long
+    /// silence : celui-la est ecarte.
+    /// </summary>
+    private static DateTime? EstimerDepart(IEnumerable<JoueurLogDto> joueurs)
+    {
+        var checks = joueurs.SelectMany(j => j.Horodatages).Order().ToList();
+        if (checks.Count == 0)
+        {
+            return null;
+        }
+
+        for (var i = 0; i < checks.Count - 1; i++)
+        {
+            if (checks[i + 1] - checks[i] <= SilenceHorsCourse)
+            {
+                return checks[i];
+            }
+        }
+
+        // Que des checks isoles : le journal est trop maigre pour departager, on prend le premier.
+        return checks[0];
     }
 
     /// <summary>Familles reconnues mais non exploitees pour le classement.</summary>
