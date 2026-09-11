@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useMatch, useSupprimerMatch } from '../api/hooks'
+import { useMatch, useProgression, useSupprimerMatch } from '../api/hooks'
 import type { EquipeResultat } from '../api/types'
 import { useAuth } from '../auth/contexte'
 import { Chargement, Erreur } from '../components/Etats'
+import { GraphiqueProgression } from '../components/GraphiqueProgression'
+import { ImportLogEquipe } from '../components/ImportLogEquipe'
 import { formaterDate, formaterPourcent, formaterTemps } from '../lib/format'
 
 export function MatchDetailPage() {
@@ -12,7 +15,11 @@ export function MatchDetailPage() {
   const naviguer = useNavigate()
 
   const { data: match, isPending, error } = useMatch(matchId)
+  const { data: progression } = useProgression(matchId)
   const supprimer = useSupprimerMatch()
+
+  // Equipe dont le formulaire d'import est ouvert : une seule a la fois.
+  const [importEnCours, setImportEnCours] = useState<number | null>(null)
 
   async function confirmerSuppression() {
     if (matchId === undefined || !window.confirm('Supprimer ce match et ses quatre resultats ?')) {
@@ -68,14 +75,48 @@ export function MatchDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {match.equipes.map((equipe) => (
-          <CarteEquipe key={equipe.equipeId ?? equipe.equipeNom} equipe={equipe} />
+          <CarteEquipe
+            key={equipe.equipeId ?? equipe.equipeNom}
+            equipe={equipe}
+            peutImporter={estConnecte && equipe.equipeId !== null}
+            onImporter={() => setImportEnCours(equipe.equipeId)}
+          />
         ))}
       </div>
+
+      {importEnCours !== null && (
+        <ImportLogEquipe
+          matchId={match.id}
+          equipe={match.equipes.find((equipe) => equipe.equipeId === importEnCours)!}
+          onFerme={() => setImportEnCours(null)}
+        />
+      )}
+
+      {progression !== undefined && progression.joueurs.length > 0 && (
+        <article className="panneau mt-4 p-4">
+          <header className="mb-3">
+            <h2 className="font-semibold">Progression des checks</h2>
+            <p className="text-texte-doux mt-0.5 text-xs">
+              Checks cumules depuis le depart de la course, tels que lus dans les journaux.
+            </p>
+          </header>
+
+          <GraphiqueProgression joueurs={progression.joueurs} />
+        </article>
+      )}
     </section>
   )
 }
 
-function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
+function CarteEquipe({
+  equipe,
+  peutImporter,
+  onImporter,
+}: {
+  equipe: EquipeResultat
+  peutImporter: boolean
+  onImporter: () => void
+}) {
   return (
     <article className={`panneau p-4 ${equipe.estGagnante ? 'border-accent' : ''}`}>
       <header className="mb-3 flex items-start justify-between gap-3">
@@ -85,6 +126,11 @@ function CarteEquipe({ equipe }: { equipe: EquipeResultat }) {
             {equipe.estGagnante && <span className="text-accent ml-2 text-xs">GAGNANTE</span>}
           </h2>
           <p className="text-texte-doux mt-0.5 text-xs">Position {equipe.position}</p>
+          {peutImporter && (
+            <button type="button" className="bouton-discret mt-2" onClick={onImporter}>
+              Televerser le journal
+            </button>
+          )}
         </div>
 
         <div className="text-right">

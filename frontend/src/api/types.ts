@@ -149,3 +149,63 @@ export interface FiltresMatchs {
   du?: string
   au?: string
 }
+
+/** Ce qu'un journal Archipelago apprend sur un joueur, avant tout rapprochement. */
+export interface JoueurLog {
+  /** Pseudonyme dans la partie, a rapprocher d'un joueur du roster. */
+  alias: string
+  /** Jeu annonce a la connexion, tel qu'ecrit par Archipelago. */
+  jeu: string | null
+  checksTrouves: number
+  /** Taille du monde. Connue seulement si le joueur a termine et libere son monde. */
+  totalChecks: number | null
+  premierCheck: string | null
+  dernierCheck: string | null
+  objectif: string | null
+  estAbandon: boolean
+  horodatages: string[]
+}
+
+/** Une famille de lignes reconnue dans le journal, avec un exemple. */
+export interface SignalLog {
+  signal: string
+  occurrences: number
+  exemple: string
+}
+
+export interface RapportLog {
+  joueurs: JoueurLog[]
+  signaux: SignalLog[]
+  debut: string | null
+  fin: string | null
+  lignesLues: number
+  lignesIgnorees: number
+}
+
+/** Rapprochement d'un pseudonyme du journal avec un joueur du roster. */
+export interface CorrespondanceAlias {
+  alias: string
+  joueurId: number
+}
+
+export interface ImportLog {
+  contenu: string
+  /** Depart commun de la course, au format `AAAA-MM-JJTHH:MM:SS`. */
+  departCourse: string
+  correspondances: CorrespondanceAlias[]
+}
+
+/** Progression d'un joueur : instant de chaque check, en secondes depuis le depart. */
+export interface ProgressionJoueur {
+  joueurId: number
+  joueurNom: string
+  equipeId: number | null
+  equipeNom: string
+  jeuNom: string
+  secondes: number[]
+}
+
+export interface ProgressionMatch {
+  matchId: number
+  joueurs: ProgressionJoueur[]
+}

@@ -40,6 +40,7 @@ builder.Services.AddScoped<ReferentielService>();
 builder.Services.AddScoped<EquipeService>();
 builder.Services.AddScoped<MatchService>();
 builder.Services.AddScoped<StatsService>();
+builder.Services.AddScoped<ImportLogService>();
 builder.Services.AddSingleton<AuthService>();
 
 // --- Authentification --------------------------------------------------------------------
@@ -136,6 +137,7 @@ app.MapJoueursEndpoints();
 app.MapJeuxEndpoints();
 app.MapEquipesEndpoints();
 app.MapMatchsEndpoints();
+app.MapImportLogEndpoints();
 app.MapStatsEndpoints();
 
 app.Run();

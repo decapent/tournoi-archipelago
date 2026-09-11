@@ -4,11 +4,14 @@ import type {
   ClassementEquipe,
   Equipe,
   FiltresMatchs,
+  ImportLog,
   Jeu,
   Joueur,
   MatchDetail,
   MatchSommaire,
   MatchUpsert,
+  ProgressionMatch,
+  RapportLog,
   StatsJeu,
   TriClassement,
   TypeMatch,
@@ -23,6 +26,7 @@ export const cles = {
   match: (id: number) => ['matchs', id] as const,
   classement: (type?: TypeMatch, tri?: TriClassement) => ['classement', type, tri] as const,
   statsJeux: (type?: TypeMatch) => ['stats-jeux', type] as const,
+  progression: (matchId: number) => ['matchs', matchId, 'progression'] as const,
 }
 
 export function useJoueurs() {
@@ -211,5 +215,43 @@ export function useSupprimerEquipe() {
       void cache.invalidateQueries({ queryKey: cles.equipes })
       void cache.invalidateQueries({ queryKey: ['classement'] })
     },
+  })
+}
+
+/**
+ * Lit un journal Archipelago sans rien enregistrer, pour proposer le rapprochement des
+ * pseudonymes avant l'import.
+ */
+export function useAnalyserLog() {
+  return useMutation({
+    mutationFn: (contenu: string) =>
+      appelerApi<RapportLog>('/logs/analyse', { methode: 'POST', corps: { contenu } }),
+  })
+}
+
+/** Reporte un journal sur les resultats d'une equipe du match. */
+export function useImporterLog(matchId: number, equipeId: number) {
+  const cache = useQueryClient()
+  const invalider = useInvaliderStats()
+
+  return useMutation({
+    mutationFn: (import_: ImportLog) =>
+      appelerApi<MatchDetail>(`/matchs/${matchId}/equipes/${equipeId}/log`, {
+        methode: 'POST',
+        corps: import_,
+      }),
+    onSuccess: () => {
+      invalider()
+      void cache.invalidateQueries({ queryKey: cles.progression(matchId) })
+    },
+  })
+}
+
+/** Courbes de progression d'un match, en secondes depuis le depart de la course. */
+export function useProgression(matchId: number | undefined) {
+  return useQuery({
+    queryKey: cles.progression(matchId ?? 0),
+    queryFn: () => appelerApi<ProgressionMatch>(`/matchs/${matchId}/progression`),
+    enabled: matchId !== undefined,
   })
 }
