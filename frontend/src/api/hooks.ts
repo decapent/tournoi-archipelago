@@ -13,6 +13,7 @@ import type {
   ProgressionMatch,
   RapportLog,
   StatsJeu,
+  StatsJoueur,
   TriClassement,
   TypeMatch,
 } from './types'
@@ -26,6 +27,7 @@ export const cles = {
   match: (id: number) => ['matchs', id] as const,
   classement: (type?: TypeMatch, tri?: TriClassement) => ['classement', type, tri] as const,
   statsJeux: (type?: TypeMatch) => ['stats-jeux', type] as const,
+  statsJoueurs: (type?: TypeMatch) => ['stats-joueurs', type] as const,
   progression: (matchId: number) => ['matchs', matchId, 'progression'] as const,
 }
 
@@ -73,6 +75,13 @@ export function useStatsJeux(type?: TypeMatch) {
   })
 }
 
+export function useStatsJoueurs(type?: TypeMatch) {
+  return useQuery({
+    queryKey: cles.statsJoueurs(type),
+    queryFn: () => appelerApi<StatsJoueur[]>('/stats/joueurs', { parametres: { type } }),
+  })
+}
+
 /**
  * Invalide tout ce qui derive des matchs. Une saisie change a la fois l'historique,
  * le classement et les statistiques par jeu.
@@ -84,6 +93,7 @@ function useInvaliderStats() {
     void cache.invalidateQueries({ queryKey: ['matchs'] })
     void cache.invalidateQueries({ queryKey: ['classement'] })
     void cache.invalidateQueries({ queryKey: ['stats-jeux'] })
+    void cache.invalidateQueries({ queryKey: ['stats-joueurs'] })
   }
 }
 
@@ -135,6 +145,8 @@ export function useRenommerJoueur() {
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: cles.joueurs })
       void cache.invalidateQueries({ queryKey: cles.equipes })
+      void cache.invalidateQueries({ queryKey: ['stats-joueurs'] })
+      void cache.invalidateQueries({ queryKey: ['matchs'] })
     },
   })
 }
@@ -188,6 +200,7 @@ export function useCreerEquipe() {
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: cles.equipes })
       void cache.invalidateQueries({ queryKey: ['classement'] })
+      void cache.invalidateQueries({ queryKey: ['stats-joueurs'] })
     },
   })
 }
@@ -202,6 +215,7 @@ export function useModifierEquipe() {
       void cache.invalidateQueries({ queryKey: cles.equipes })
       void cache.invalidateQueries({ queryKey: ['classement'] })
       void cache.invalidateQueries({ queryKey: ['matchs'] })
+      void cache.invalidateQueries({ queryKey: ['stats-joueurs'] })
     },
   })
 }
@@ -214,6 +228,7 @@ export function useSupprimerEquipe() {
     onSuccess: () => {
       void cache.invalidateQueries({ queryKey: cles.equipes })
       void cache.invalidateQueries({ queryKey: ['classement'] })
+      void cache.invalidateQueries({ queryKey: ['stats-joueurs'] })
     },
   })
 }

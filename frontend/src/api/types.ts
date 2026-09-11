@@ -105,6 +105,32 @@ export interface ClassementEquipe {
   penaliteCumuleeSecs: number
 }
 
+/**
+ * Bilan d'un joueur sur le tournoi. Un joueur court une seule seed par match : le nombre de
+ * seeds jouees est donc aussi son nombre de matchs.
+ */
+export interface StatsJoueur {
+  joueurId: number
+  joueurNom: string
+  equipeId: number | null
+  equipeNom: string
+  seedsJouees: number
+  /** Matchs complets remportes par son equipe. */
+  victoires: number
+  /** Moyenne des seeds terminees : les abandons ne mesurent pas une completion. */
+  tempsMoyenSecs: number | null
+  tempsMedianSecs: number | null
+  meilleurTempsSecs: number | null
+  meilleurJeuNom: string | null
+  checksTrouves: number
+  pourcentCompleteMoyen: number | null
+  /** Rythme sur les seeds terminees : checks trouves par heure de jeu. */
+  checksParHeure: number | null
+  nbAbandons: number
+  /** Nombre de fois ou sa seed a fixe le temps de son equipe, en etant la plus longue. */
+  seedsDeterminantes: number
+}
+
 export interface StatsJeu {
   jeuId: number
   jeuNom: string

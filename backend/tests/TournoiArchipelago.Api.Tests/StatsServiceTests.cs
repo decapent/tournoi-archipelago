@@ -218,6 +218,149 @@ public class StatsServiceTests
         Assert.Null(jamaisJoue.PourcentCompleteMoyen);
     }
 
+    [Fact]
+    public async Task Le_bilan_par_joueur_cumule_seeds_victoires_temps_et_checks()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Match 1 : equipe A gagne, la seed d'Alice (3 600 s) etant la plus longue des deux.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 3_500, 60, 200),
+        ]);
+
+        // Match 2 : equipe B gagne, et cette fois c'est Bob qui fait attendre son equipe.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
+        [
+            new(donnees.Alice, donnees.Alttp, 1_800, 150, 200),
+            new(donnees.Bob, donnees.Metroid, 2_000, 90, 200),
+            new(donnees.Chloe, donnees.Alttp, 1_000, 70, 200),
+            new(donnees.David, donnees.Metroid, 900, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal("Les Nous_", alice.EquipeNom);
+        Assert.Equal(2, alice.SeedsJouees);
+        Assert.Equal(1, alice.Victoires);
+        Assert.Equal(0, alice.NbAbandons);
+
+        Assert.Equal(2_700, alice.TempsMoyenSecs);
+        Assert.Equal(2_700, alice.TempsMedianSecs);
+        Assert.Equal(1_800, alice.MeilleurTempsSecs);
+        Assert.Equal("A Link to the Past", alice.MeilleurJeuNom);
+
+        Assert.Equal(250, alice.ChecksTrouves);
+        Assert.Equal(0.625, alice.PourcentCompleteMoyen);
+
+        // 250 checks en 5 400 s de jeu, soit une heure et demie.
+        Assert.Equal(166.67, alice.ChecksParHeure!.Value, 2);
+
+        // Chaque equipe a ete retenue une fois sur la seed d'Alice, une fois sur celle de Bob.
+        Assert.Equal(1, alice.SeedsDeterminantes);
+        Assert.Equal(1, stats.Single(s => s.JoueurNom == "Bob").SeedsDeterminantes);
+
+        // Cote adverse, Chloe a ete la plus lente des deux fois.
+        Assert.Equal(2, stats.Single(s => s.JoueurNom == "Chloe").SeedsDeterminantes);
+        Assert.Equal(0, stats.Single(s => s.JoueurNom == "David").SeedsDeterminantes);
+    }
+
+    [Fact]
+    public async Task Un_abandon_compte_comme_seed_jouee_mais_sort_des_temps()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 60, 20, 200, EstAbandon: true),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 5_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 4_000, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal(1, alice.SeedsJouees);
+        Assert.Equal(1, alice.NbAbandons);
+
+        // Un abandon ne mesure pas une completion : il ne nourrit ni moyenne, ni mediane,
+        // ni meilleur temps, ni rythme.
+        Assert.Null(alice.TempsMoyenSecs);
+        Assert.Null(alice.TempsMedianSecs);
+        Assert.Null(alice.MeilleurTempsSecs);
+        Assert.Null(alice.MeilleurJeuNom);
+        Assert.Null(alice.ChecksParHeure);
+
+        // Ses checks restent comptes, eux.
+        Assert.Equal(20, alice.ChecksTrouves);
+        Assert.Equal(0.1, alice.PourcentCompleteMoyen);
+
+        // Son abandon majore d'une heure donne 3 660 s, devant les 3 000 s de Bob : c'est
+        // donc elle qui a fixe le temps de l'equipe, malgre un temps brut de 60 s.
+        Assert.Equal(1, alice.SeedsDeterminantes);
+        Assert.Equal(0, stats.Single(s => s.JoueurNom == "Bob").SeedsDeterminantes);
+
+        // L'equipe gagne quand meme : 3 660 s contre 5 000 s.
+        Assert.Equal(1, alice.Victoires);
+    }
+
+    [Fact]
+    public async Task Le_bilan_par_joueur_respecte_le_filtre_de_type()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        await AjouterMatchAsync(contexte, TypeMatch.QUALIFICATION, new DateOnly(2026, 8, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 3_500, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+
+        Assert.Equal(1, (await service.StatsParJoueurAsync(TypeMatch.QUALIFICATION))
+            .Single(s => s.JoueurNom == "Alice").SeedsJouees);
+
+        Assert.Equal(0, (await service.StatsParJoueurAsync(TypeMatch.TOURNOI))
+            .Single(s => s.JoueurNom == "Alice").SeedsJouees);
+    }
+
+    [Fact]
+    public async Task Un_joueur_sans_match_apparait_sans_statistique()
+    {
+        using var contexte = new ContexteDeTest();
+        await SemerAsync(contexte);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal(0, alice.SeedsJouees);
+        Assert.Equal(0, alice.Victoires);
+        Assert.Equal(0, alice.ChecksTrouves);
+        Assert.Equal(0, alice.SeedsDeterminantes);
+        Assert.Null(alice.TempsMoyenSecs);
+        Assert.Null(alice.PourcentCompleteMoyen);
+        Assert.Null(alice.ChecksParHeure);
+
+        // Il figure quand meme dans la liste, avec son equipe.
+        Assert.Equal("Les Nous_", alice.EquipeNom);
+    }
+
     /// <summary>Equipe prete a etre inseree, avec son roster.</summary>
     private static Equipe EquipeAvec(string nom, params Joueur[] membres) => new()
     {

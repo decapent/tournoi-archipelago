@@ -17,6 +17,13 @@ public static class StatsEndpoints
             service.ClassementAsync(type, tri, annulation))
         .WithSummary("Classement general par equipe, base sur le temps de completion du duo.");
 
+        groupe.MapGet("/joueurs", (
+            StatsService service,
+            CancellationToken annulation,
+            TypeMatch? type = null) =>
+            service.StatsParJoueurAsync(type, annulation))
+        .WithSummary("Statistiques agregees par joueur : seeds, temps, checks, abandons.");
+
         groupe.MapGet("/jeux", (
             StatsService service,
             CancellationToken annulation,
