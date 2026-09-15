@@ -3,6 +3,7 @@ import { useClassement } from '../api/hooks'
 import type { TriClassement, TypeMatch } from '../api/types'
 import { Chargement, Erreur, Vide } from '../components/Etats'
 import { FiltreType } from '../components/FiltreType'
+import { styleEquipe } from '../lib/couleursEquipes'
 import { formaterNombre, formaterPourcent, formaterTemps } from '../lib/format'
 
 export function ClassementPage() {
@@ -17,9 +18,10 @@ export function ClassementPage() {
         <div>
           <h1 className="text-xl font-semibold">Classement general</h1>
           <p className="text-texte-doux mt-1 text-sm">
-            Le score d une equipe est la somme des temps de ses participants, chaque abandon
-            comptant son temps majore d une heure. Le plus petit total gagne le match. Les
-            matchs dont un temps reste a saisir n y figurent pas encore.
+            Le score d une equipe est le temps de sa seed la plus longue, chaque abandon
+            comptant son temps majore d une heure : l equipe a fini quand son dernier joueur a
+            fini. Le plus petit score gagne le match. Les matchs dont un temps reste a saisir n
+            y figurent pas encore.
           </p>
         </div>
 
@@ -34,7 +36,7 @@ export function ClassementPage() {
               onChange={(evenement) => setTri(evenement.target.value as TriClassement)}
             >
               <option value="Victoires">Victoires</option>
-              <option value="Temps">Temps cumule</option>
+              <option value="Temps">Temps relatif</option>
             </select>
           </label>
         </div>
@@ -55,6 +57,12 @@ export function ClassementPage() {
                   <th>Equipe</th>
                   <th className="num">Matchs</th>
                   <th className="num">Victoires</th>
+                  <th
+                    className="num"
+                    title="Temps de l equipe rapporte a celui de son adversaire, moyenne sur ses matchs. Sous 100 %, elle a ete plus rapide."
+                  >
+                    Temps relatif
+                  </th>
                   <th className="num">Temps cumule</th>
                   <th className="num">Temps moyen</th>
                   <th className="num">Checks</th>
@@ -67,9 +75,14 @@ export function ClassementPage() {
                 {classement.map((ligne) => (
                   <tr key={ligne.equipeId}>
                     <td className="num text-texte-doux">{ligne.position}</td>
-                    <td className="font-medium">{ligne.equipeNom}</td>
+                    <td className="font-medium" style={styleEquipe(ligne.equipeNom)}>
+                      {ligne.equipeNom}
+                    </td>
                     <td className="num">{ligne.matchsJoues}</td>
                     <td className="num font-semibold">{ligne.victoires}</td>
+                    <td className="num font-semibold">
+                      {formaterPourcent(ligne.tempsRelatif, 2)}
+                    </td>
                     <td className="num">
                       {ligne.matchsJoues === 0 ? '—' : formaterTemps(ligne.tempsCumuleSecs)}
                     </td>
