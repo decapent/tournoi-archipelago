@@ -64,6 +64,7 @@ public class ImportLogService(TournoiDbContext db)
                     EquipeId: equipe?.Id,
                     EquipeNom: equipe?.Nom ?? ScoringService.NomEquipeInconnue,
                     JeuNom: ligne?.Jeu?.Nom ?? string.Empty,
+                    TotalChecks: ligne?.TotalChecks,
                     Secondes: [.. g.Select(c => c.Secondes).Order()]);
             })
             .OrderBy(j => j.EquipeNom, StringComparer.OrdinalIgnoreCase)

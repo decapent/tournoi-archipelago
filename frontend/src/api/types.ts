@@ -239,6 +239,8 @@ export interface ProgressionJoueur {
   equipeId: number | null
   equipeNom: string
   jeuNom: string
+  /** Taille du monde, pour situer la progression par rapport a son terme. */
+  totalChecks: number | null
   secondes: number[]
 }
 

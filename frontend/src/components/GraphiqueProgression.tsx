@@ -41,8 +41,21 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
   // Les deux equipes se distinguent au trait — plein ou pointille — en plus de la couleur.
   const equipes = [...new Set(traces.map((joueur) => joueur.equipeNom))]
 
+  // Un seuil par jeu : la taille de son monde. Les deux equipes courent les memes seeds,
+  // les joueurs d'un meme jeu partagent donc le meme total.
+  const arrivees = [
+    ...new Map(
+      traces
+        .filter((joueur) => joueur.totalChecks !== null && joueur.jeuNom !== '')
+        .map((joueur) => [joueur.jeuNom, joueur.totalChecks!]),
+    ),
+  ].sort((a, b) => b[1] - a[1])
+
   const tempsMax = Math.max(...traces.map((joueur) => joueur.secondes.at(-1) ?? 0))
-  const checksMax = Math.max(...traces.map((joueur) => joueur.secondes.length))
+  const checksMax = Math.max(
+    ...traces.map((joueur) => joueur.secondes.length),
+    ...arrivees.map(([, total]) => total),
+  )
 
   const pasX = choisirPas(PAS_TEMPS, tempsMax)
   const pasY = choisirPas(PAS_CHECKS, checksMax)
@@ -63,7 +76,8 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
         aria-labelledby={`${identifiant}-titre`}
       >
         <title id={`${identifiant}-titre`}>
-          Checks cumules par joueur, de zero a {formaterTemps(tempsMax)} de course.
+          Checks cumules par joueur, de zero a {formaterTemps(tempsMax)} de course. Un seuil
+          en pointille marque la taille du monde de chaque jeu.
         </title>
 
         {graduations(limiteY, pasY).map((checks) => (
@@ -107,6 +121,32 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
         >
           temps de course
         </text>
+
+        {arrivees.map(([jeu, total]) => (
+          <g key={`arrivee-${jeu}`}>
+            {/*
+              Pointille assume : sur une grille ce serait du bruit, mais ici c'est justement
+              un seuil, et le trait discontinu est ce qui le distingue d'une graduation.
+            */}
+            <line
+              x1={MARGE.gauche}
+              x2={LARGEUR - MARGE.droite}
+              y1={y(total)}
+              y2={y(total)}
+              className="stroke-texte-doux"
+              strokeWidth={1}
+              strokeDasharray="6 4"
+            />
+            <text
+              x={LARGEUR - MARGE.droite}
+              y={y(total) - 5}
+              textAnchor="end"
+              className="fill-texte-doux text-[11px]"
+            >
+              {jeu} · {total} checks
+            </text>
+          </g>
+        ))}
 
         {traces.map((joueur, rang) => {
           const estEstompe = survole !== null && survole !== joueur.joueurId

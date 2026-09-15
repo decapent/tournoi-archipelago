@@ -63,6 +63,8 @@ public record ProgressionJoueurDto(
     int? EquipeId,
     string EquipeNom,
     string JeuNom,
+    /// <summary>Taille du monde, pour situer la progression par rapport a son terme.</summary>
+    int? TotalChecks,
     IReadOnlyList<int> Secondes);
 
 /// <summary>Courbes de progression d'un match, pretes a tracer.</summary>
