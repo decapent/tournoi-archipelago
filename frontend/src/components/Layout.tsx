@@ -3,6 +3,7 @@ import { useAuth } from '../auth/contexte'
 
 const LIENS_PUBLICS = [
   { to: '/', libelle: 'Classement' },
+  { to: '/joueurs', libelle: 'Stats par joueur' },
   { to: '/jeux', libelle: 'Stats par jeu' },
   { to: '/matchs', libelle: 'Matchs' },
 ]

@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import type { ProgressionJoueur } from '../api/types'
+import { styleEquipe } from '../lib/couleursEquipes'
 import { formaterTemps } from '../lib/format'
 
 /**
@@ -139,9 +140,10 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
               style={{ backgroundColor: COULEURS[rang % COULEURS.length] }}
             />
             <span className="font-medium">{joueur.joueurNom}</span>
+            <span style={styleEquipe(joueur.equipeNom)}>{joueur.equipeNom}</span>
             <span className="text-texte-doux">
-              {joueur.equipeNom}
-              {joueur.jeuNom !== '' && ` · ${joueur.jeuNom}`} · {joueur.secondes.length} checks
+              {joueur.jeuNom !== '' && `${joueur.jeuNom} · `}
+              {joueur.secondes.length} checks
             </span>
           </li>
         ))}

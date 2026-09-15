@@ -47,6 +47,19 @@ public class StatsService(TournoiDbContext db)
                 cumul.TempsCumuleSecs += resultat.TempsTotalSecs ?? 0;
                 cumul.ChecksTrouves += resultat.ChecksTrouves;
 
+                // Un match complet oppose exactement deux equipes : le temps relatif mesure
+                // le sien contre celui d'en face, ce qui rend comparables des matchs dont les
+                // seeds n'ont ni la meme taille ni la meme difficulte.
+                var adverse = classement.Equipes.FirstOrDefault(
+                    autre => autre.EquipeId != resultat.EquipeId);
+
+                if (resultat.TempsTotalSecs is { } mien
+                    && adverse?.TempsTotalSecs is { } adversaire
+                    && adversaire > 0)
+                {
+                    cumul.Ratios.Add((double)mien / adversaire);
+                }
+
                 if (resultat.EstGagnante)
                 {
                     cumul.Victoires++;
@@ -75,22 +88,21 @@ public class StatsService(TournoiDbContext db)
                 Equipe = equipe,
                 Cumul = cumul,
                 TempsMoyen = cumul.TotauxParMatch.Count > 0 ? cumul.TotauxParMatch.Average() : (double?)null,
+                TempsRelatif = cumul.Ratios.Count > 0 ? cumul.Ratios.Average() : (double?)null,
                 PourcentMoyen = cumul.Pourcentages.Count > 0 ? cumul.Pourcentages.Average() : (double?)null,
             };
         });
 
-        // Les equipes n'ayant encore joue aucun match sont reportees en fin de classement :
-        // sans cela, leur temps cumule de zero les placerait en tete.
+        // Une equipe sans match vaut 100 % : elle se place naturellement entre celles qui
+        // ont battu leur adversaire et celles qui ont perdu contre le leur.
         var ordonnees = tri == TriClassement.Temps
             ? lignes
-                .OrderByDescending(l => l.Cumul.MatchsJoues > 0)
-                .ThenBy(l => l.Cumul.MatchsJoues > 0 ? l.Cumul.TempsCumuleSecs : int.MaxValue)
+                .OrderBy(l => l.TempsRelatif ?? 1)
                 .ThenByDescending(l => l.Cumul.Victoires)
                 .ThenBy(l => l.Equipe.Nom, StringComparer.OrdinalIgnoreCase)
             : lignes
-                .OrderByDescending(l => l.Cumul.MatchsJoues > 0)
-                .ThenByDescending(l => l.Cumul.Victoires)
-                .ThenBy(l => l.Cumul.MatchsJoues > 0 ? l.Cumul.TempsCumuleSecs : int.MaxValue)
+                .OrderByDescending(l => l.Cumul.Victoires)
+                .ThenBy(l => l.TempsRelatif ?? 1)
                 .ThenBy(l => l.Equipe.Nom, StringComparer.OrdinalIgnoreCase);
 
         return [.. ordonnees.Select((l, index) => new ClassementEquipeDto(
@@ -101,6 +113,7 @@ public class StatsService(TournoiDbContext db)
             Victoires: l.Cumul.Victoires,
             TempsCumuleSecs: l.Cumul.TempsCumuleSecs,
             TempsMoyenSecs: l.TempsMoyen,
+            TempsRelatif: l.TempsRelatif,
             ChecksTrouves: l.Cumul.ChecksTrouves,
             PourcentCompleteMoyen: l.PourcentMoyen,
             Abandons: l.Cumul.Abandons,
@@ -151,6 +164,121 @@ public class StatsService(TournoiDbContext db)
             .ThenBy(s => s.JeuNom, StringComparer.OrdinalIgnoreCase)];
     }
 
+    public async Task<IReadOnlyList<StatsJoueurDto>> StatsParJoueurAsync(
+        TypeMatch? type,
+        CancellationToken annulation = default)
+    {
+        var joueurs = await db.Joueurs.AsNoTracking().ToListAsync(annulation);
+
+        var equipes = await db.Equipes
+            .Include(e => e.Membres)
+            .AsNoTracking()
+            .ToListAsync(annulation);
+
+        var equipeParJoueur = equipes
+            .SelectMany(equipe => equipe.Membres.Select(membre => (membre.JoueurId, equipe)))
+            .ToDictionary(paire => paire.JoueurId, paire => paire.equipe);
+
+        var matchs = await ChargerMatchsAsync(type, annulation);
+        var cumuls = joueurs.ToDictionary(joueur => joueur.Id, _ => new CumulJoueur());
+
+        foreach (var match in matchs)
+        {
+            var classement = ScoringService.ClasserMatch(match);
+
+            // Meme regle que le classement : un match dont un resultat reste a saisir est
+            // ignore, y compris ses lignes deja renseignees.
+            if (!classement.EstComplet)
+            {
+                continue;
+            }
+
+            foreach (var resultat in classement.Equipes)
+            {
+                // La ligne determinante se recalcule sur les entites, le DTO ne la designant pas.
+                var lignes = match.MatchJeux
+                    .Where(ligne => equipeParJoueur.GetValueOrDefault(ligne.JoueurId)?.Id == resultat.EquipeId)
+                    .ToList();
+
+                var determinante = ScoringService.LigneDeterminante(lignes);
+
+                foreach (var ligne in lignes)
+                {
+                    if (!cumuls.TryGetValue(ligne.JoueurId, out var cumul))
+                    {
+                        continue;
+                    }
+
+                    cumul.SeedsJouees++;
+
+                    if (resultat.EstGagnante)
+                    {
+                        cumul.Victoires++;
+                    }
+
+                    if (ligne.EstAbandon)
+                    {
+                        cumul.Abandons++;
+                    }
+                    else
+                    {
+                        cumul.Temps.Add(ligne.TempsFinalSecs!.Value);
+                        cumul.SecondesDeJeu += ligne.TempsFinalSecs!.Value;
+                        cumul.ChecksDesSeedsTerminees += ligne.NbChecks ?? 0;
+
+                        if (cumul.Meilleure is null
+                            || ligne.TempsFinalSecs!.Value < cumul.Meilleure.TempsFinalSecs!.Value)
+                        {
+                            cumul.Meilleure = ligne;
+                        }
+                    }
+
+                    cumul.ChecksTrouves += ligne.NbChecks ?? 0;
+
+                    if (ligne.PourcentComplete is not null)
+                    {
+                        cumul.Pourcentages.Add(ligne.PourcentComplete.Value);
+                    }
+
+                    if (ReferenceEquals(ligne, determinante))
+                    {
+                        cumul.Determinantes++;
+                    }
+                }
+            }
+        }
+
+        var stats = joueurs.Select(joueur =>
+        {
+            var cumul = cumuls[joueur.Id];
+            var equipe = equipeParJoueur.GetValueOrDefault(joueur.Id);
+            var temps = cumul.Temps.Order().ToList();
+
+            return new StatsJoueurDto(
+                JoueurId: joueur.Id,
+                JoueurNom: joueur.Nom,
+                EquipeId: equipe?.Id,
+                EquipeNom: equipe?.Nom ?? ScoringService.NomEquipeInconnue,
+                SeedsJouees: cumul.SeedsJouees,
+                Victoires: cumul.Victoires,
+                TempsMoyenSecs: temps.Count > 0 ? temps.Average() : null,
+                TempsMedianSecs: Mediane(temps),
+                MeilleurTempsSecs: cumul.Meilleure?.TempsFinalSecs,
+                MeilleurJeuNom: cumul.Meilleure?.Jeu?.Nom,
+                ChecksTrouves: cumul.ChecksTrouves,
+                PourcentCompleteMoyen: cumul.Pourcentages.Count > 0 ? cumul.Pourcentages.Average() : null,
+                ChecksParHeure: cumul.SecondesDeJeu > 0
+                    ? cumul.ChecksDesSeedsTerminees * 3600.0 / cumul.SecondesDeJeu
+                    : null,
+                NbAbandons: cumul.Abandons,
+                SeedsDeterminantes: cumul.Determinantes);
+        });
+
+        return [.. stats
+            .OrderByDescending(s => s.SeedsJouees)
+            .ThenBy(s => s.JoueurNom, StringComparer.OrdinalIgnoreCase)];
+    }
+
     /// <summary>Mediane d'une liste deja triee par ordre croissant.</summary>
     internal static int? Mediane(IReadOnlyList<int> triees)
     {
@@ -177,6 +305,32 @@ public class StatsService(TournoiDbContext db)
         return requete.ToListAsync(annulation);
     }
 
+    private sealed class CumulJoueur
+    {
+        public int SeedsJouees { get; set; }
+
+        public int Victoires { get; set; }
+
+        public int Abandons { get; set; }
+
+        public int ChecksTrouves { get; set; }
+
+        /// <summary>Checks des seules seeds terminees, pour un rythme comparable.</summary>
+        public int ChecksDesSeedsTerminees { get; set; }
+
+        public int SecondesDeJeu { get; set; }
+
+        public int Determinantes { get; set; }
+
+        /// <summary>Sa seed la plus rapide, abandons exclus.</summary>
+        public MatchJeu? Meilleure { get; set; }
+
+        /// <summary>Temps des seeds terminees.</summary>
+        public List<int> Temps { get; } = [];
+
+        public List<double> Pourcentages { get; } = [];
+    }
+
     private sealed class Cumul
     {
         public int MatchsJoues { get; set; }
@@ -193,6 +347,9 @@ public class StatsService(TournoiDbContext db)
 
         /// <summary>Score de l'equipe pour chaque match joue, penalites incluses.</summary>
         public List<int> TotauxParMatch { get; } = [];
+
+        /// <summary>Son temps sur celui de l'adversaire, un par match joue.</summary>
+        public List<double> Ratios { get; } = [];
 
         public List<double> Pourcentages { get; } = [];
     }

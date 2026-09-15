@@ -135,7 +135,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task Une_equipe_sans_match_est_reportee_en_fin_de_classement()
+    public async Task Une_equipe_sans_match_se_classe_entre_les_gagnantes_et_les_perdantes()
     {
         using var contexte = new ContexteDeTest();
         var donnees = await SemerAsync(contexte);
@@ -158,9 +158,76 @@ public class StatsServiceTests
         var service = new StatsService(contexte.Creer());
         var classement = await service.ClassementAsync(null, TriClassement.Temps);
 
-        Assert.Equal(3, classement.Count);
-        Assert.Equal("AGreatTeam", classement[^1].EquipeNom);
-        Assert.Equal(0, classement[^1].MatchsJoues);
+        // Sans match, l'equipe n'a pas de temps relatif : elle vaut 100 %, donc devant les
+        // 900 % de la perdante et derriere les 11 % de la gagnante.
+        Assert.Equal(
+            ["Les Nous_", "AGreatTeam", "No M's Land"],
+            classement.Select(l => l.EquipeNom));
+
+        var sansMatch = classement.Single(l => l.EquipeNom == "AGreatTeam");
+        Assert.Equal(0, sansMatch.MatchsJoues);
+        Assert.Null(sansMatch.TempsRelatif);
+        Assert.Equal(2, sansMatch.Position);
+    }
+
+    [Fact]
+    public async Task Le_temps_relatif_oppose_le_temps_de_l_equipe_a_celui_de_son_adversaire()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Equipe A retenue sur 1 000 s, equipe B sur 1 425 s.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 1_000),
+            new(donnees.Bob, donnees.Metroid, 800),
+            new(donnees.Chloe, donnees.Alttp, 1_425),
+            new(donnees.David, donnees.Metroid, 900),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var classement = await service.ClassementAsync(null, TriClassement.Victoires);
+
+        var equipeA = classement.Single(l => l.EquipeNom == "Les Nous_");
+        var equipeB = classement.Single(l => l.EquipeNom == "No M's Land");
+
+        Assert.Equal(1_000d / 1_425d, equipeA.TempsRelatif!.Value, 6);
+        Assert.Equal(1_425d / 1_000d, equipeB.TempsRelatif!.Value, 6);
+
+        // Les deux pourcentages sont reciproques : c'est le meme match vu des deux cotes.
+        Assert.Equal(1, equipeA.TempsRelatif!.Value * equipeB.TempsRelatif!.Value, 6);
+    }
+
+    [Fact]
+    public async Task Le_temps_relatif_moyenne_les_matchs_plutot_que_les_temps()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Match court, largement gagne : 100 s contre 200 s, soit 50 %.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 100),
+            new(donnees.Bob, donnees.Metroid, 100),
+            new(donnees.Chloe, donnees.Alttp, 200),
+            new(donnees.David, donnees.Metroid, 200),
+        ]);
+
+        // Match long, tout juste perdu : 10 000 s contre 8 000 s, soit 125 %.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
+        [
+            new(donnees.Alice, donnees.Alttp, 10_000),
+            new(donnees.Bob, donnees.Metroid, 9_000),
+            new(donnees.Chloe, donnees.Alttp, 8_000),
+            new(donnees.David, donnees.Metroid, 7_000),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var classement = await service.ClassementAsync(null, TriClassement.Victoires);
+
+        // Chaque match pese autant : (0,5 + 1,25) / 2. Un rapport des temps cumules aurait
+        // donne 10 100 / 8 200, soit 123 %, le long match ecrasant le court.
+        Assert.Equal(0.875, classement.Single(l => l.EquipeNom == "Les Nous_").TempsRelatif!.Value, 6);
     }
 
     [Fact]
@@ -216,6 +283,149 @@ public class StatsServiceTests
         Assert.Null(jamaisJoue.MeilleurJoueurNom);
         Assert.Null(jamaisJoue.NbChecksMoyen);
         Assert.Null(jamaisJoue.PourcentCompleteMoyen);
+    }
+
+    [Fact]
+    public async Task Le_bilan_par_joueur_cumule_seeds_victoires_temps_et_checks()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Match 1 : equipe A gagne, la seed d'Alice (3 600 s) etant la plus longue des deux.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 3_500, 60, 200),
+        ]);
+
+        // Match 2 : equipe B gagne, et cette fois c'est Bob qui fait attendre son equipe.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
+        [
+            new(donnees.Alice, donnees.Alttp, 1_800, 150, 200),
+            new(donnees.Bob, donnees.Metroid, 2_000, 90, 200),
+            new(donnees.Chloe, donnees.Alttp, 1_000, 70, 200),
+            new(donnees.David, donnees.Metroid, 900, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal("Les Nous_", alice.EquipeNom);
+        Assert.Equal(2, alice.SeedsJouees);
+        Assert.Equal(1, alice.Victoires);
+        Assert.Equal(0, alice.NbAbandons);
+
+        Assert.Equal(2_700, alice.TempsMoyenSecs);
+        Assert.Equal(2_700, alice.TempsMedianSecs);
+        Assert.Equal(1_800, alice.MeilleurTempsSecs);
+        Assert.Equal("A Link to the Past", alice.MeilleurJeuNom);
+
+        Assert.Equal(250, alice.ChecksTrouves);
+        Assert.Equal(0.625, alice.PourcentCompleteMoyen);
+
+        // 250 checks en 5 400 s de jeu, soit une heure et demie.
+        Assert.Equal(166.67, alice.ChecksParHeure!.Value, 2);
+
+        // Chaque equipe a ete retenue une fois sur la seed d'Alice, une fois sur celle de Bob.
+        Assert.Equal(1, alice.SeedsDeterminantes);
+        Assert.Equal(1, stats.Single(s => s.JoueurNom == "Bob").SeedsDeterminantes);
+
+        // Cote adverse, Chloe a ete la plus lente des deux fois.
+        Assert.Equal(2, stats.Single(s => s.JoueurNom == "Chloe").SeedsDeterminantes);
+        Assert.Equal(0, stats.Single(s => s.JoueurNom == "David").SeedsDeterminantes);
+    }
+
+    [Fact]
+    public async Task Un_abandon_compte_comme_seed_jouee_mais_sort_des_temps()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 60, 20, 200, EstAbandon: true),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 5_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 4_000, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal(1, alice.SeedsJouees);
+        Assert.Equal(1, alice.NbAbandons);
+
+        // Un abandon ne mesure pas une completion : il ne nourrit ni moyenne, ni mediane,
+        // ni meilleur temps, ni rythme.
+        Assert.Null(alice.TempsMoyenSecs);
+        Assert.Null(alice.TempsMedianSecs);
+        Assert.Null(alice.MeilleurTempsSecs);
+        Assert.Null(alice.MeilleurJeuNom);
+        Assert.Null(alice.ChecksParHeure);
+
+        // Ses checks restent comptes, eux.
+        Assert.Equal(20, alice.ChecksTrouves);
+        Assert.Equal(0.1, alice.PourcentCompleteMoyen);
+
+        // Son abandon majore d'une heure donne 3 660 s, devant les 3 000 s de Bob : c'est
+        // donc elle qui a fixe le temps de l'equipe, malgre un temps brut de 60 s.
+        Assert.Equal(1, alice.SeedsDeterminantes);
+        Assert.Equal(0, stats.Single(s => s.JoueurNom == "Bob").SeedsDeterminantes);
+
+        // L'equipe gagne quand meme : 3 660 s contre 5 000 s.
+        Assert.Equal(1, alice.Victoires);
+    }
+
+    [Fact]
+    public async Task Le_bilan_par_joueur_respecte_le_filtre_de_type()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        await AjouterMatchAsync(contexte, TypeMatch.QUALIFICATION, new DateOnly(2026, 8, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 3_600, 100, 200),
+            new(donnees.Bob, donnees.Metroid, 3_000, 80, 200),
+            new(donnees.Chloe, donnees.Alttp, 4_000, 50, 200),
+            new(donnees.David, donnees.Metroid, 3_500, 60, 200),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+
+        Assert.Equal(1, (await service.StatsParJoueurAsync(TypeMatch.QUALIFICATION))
+            .Single(s => s.JoueurNom == "Alice").SeedsJouees);
+
+        Assert.Equal(0, (await service.StatsParJoueurAsync(TypeMatch.TOURNOI))
+            .Single(s => s.JoueurNom == "Alice").SeedsJouees);
+    }
+
+    [Fact]
+    public async Task Un_joueur_sans_match_apparait_sans_statistique()
+    {
+        using var contexte = new ContexteDeTest();
+        await SemerAsync(contexte);
+
+        var service = new StatsService(contexte.Creer());
+        var stats = await service.StatsParJoueurAsync(type: null);
+
+        var alice = stats.Single(s => s.JoueurNom == "Alice");
+
+        Assert.Equal(0, alice.SeedsJouees);
+        Assert.Equal(0, alice.Victoires);
+        Assert.Equal(0, alice.ChecksTrouves);
+        Assert.Equal(0, alice.SeedsDeterminantes);
+        Assert.Null(alice.TempsMoyenSecs);
+        Assert.Null(alice.PourcentCompleteMoyen);
+        Assert.Null(alice.ChecksParHeure);
+
+        // Il figure quand meme dans la liste, avec son equipe.
+        Assert.Equal("Les Nous_", alice.EquipeNom);
     }
 
     /// <summary>Equipe prete a etre inseree, avec son roster.</summary>

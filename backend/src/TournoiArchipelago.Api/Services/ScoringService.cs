@@ -41,6 +41,16 @@ public static class ScoringService
             : ligne.TempsFinalSecs.Value + (ligne.EstAbandon ? PenaliteAbandonSecs : 0);
 
     /// <summary>
+    /// La ligne qui fixe le score de son equipe : celle au temps effectif le plus long.
+    /// Rend <c>null</c> tant qu'un temps de l'equipe reste a saisir, le score n'ayant alors
+    /// pas de sens.
+    /// </summary>
+    public static MatchJeu? LigneDeterminante(IReadOnlyCollection<MatchJeu> lignes) =>
+        lignes.Count > 0 && lignes.All(ligne => !ligne.EstEnAttente)
+            ? lignes.MaxBy(ligne => TempsEffectifSecs(ligne)!.Value)
+            : null;
+
+    /// <summary>
     /// Classe les equipes engagees dans un match. Les navigations <c>Equipe</c>, <c>Joueur</c>
     /// et <c>Jeu</c> sont utilisees pour les libelles lorsqu'elles sont chargees.
     /// </summary>
@@ -177,11 +187,8 @@ public static class ScoringService
         var nbAbandons = lignes.Count(ligne => ligne.EstAbandon);
 
         // Le score d'une equipe est le temps de sa seed la plus longue : l'equipe a fini quand
-        // son dernier joueur a fini. Il n'a de sens qu'une fois tous ses temps saisis.
-        var tousSaisis = lignes.Count > 0 && nbEnAttente == 0;
-        var determinante = tousSaisis
-            ? lignes.MaxBy(ligne => TempsEffectifSecs(ligne)!.Value)
-            : null;
+        // son dernier joueur a fini.
+        var determinante = LigneDeterminante(lignes);
 
         int? tempsBrut = determinante?.TempsFinalSecs;
 

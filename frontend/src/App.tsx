@@ -3,6 +3,7 @@ import { Layout } from './components/Layout'
 import { ProtectedRoute } from './auth/ProtectedRoute'
 import { ClassementPage } from './pages/ClassementPage'
 import { StatsJeuxPage } from './pages/StatsJeuxPage'
+import { StatsJoueursPage } from './pages/StatsJoueursPage'
 import { MatchsPage } from './pages/MatchsPage'
 import { MatchDetailPage } from './pages/MatchDetailPage'
 import { LoginPage } from './pages/admin/LoginPage'
@@ -15,6 +16,7 @@ export function App() {
       <Route element={<Layout />}>
         <Route index element={<ClassementPage />} />
         <Route path="jeux" element={<StatsJeuxPage />} />
+        <Route path="joueurs" element={<StatsJoueursPage />} />
         <Route path="matchs" element={<MatchsPage />} />
         <Route path="matchs/:id" element={<MatchDetailPage />} />
 

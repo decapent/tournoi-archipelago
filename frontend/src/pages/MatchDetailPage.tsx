@@ -6,6 +6,7 @@ import { useAuth } from '../auth/contexte'
 import { Chargement, Erreur } from '../components/Etats'
 import { GraphiqueProgression } from '../components/GraphiqueProgression'
 import { ImportLogEquipe } from '../components/ImportLogEquipe'
+import { styleEquipe } from '../lib/couleursEquipes'
 import { formaterDate, formaterPourcent, formaterTemps } from '../lib/format'
 
 export function MatchDetailPage() {
@@ -121,7 +122,7 @@ function CarteEquipe({
     <article className={`panneau p-4 ${equipe.estGagnante ? 'border-accent' : ''}`}>
       <header className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-semibold">
+          <h2 className="font-semibold" style={styleEquipe(equipe.equipeNom)}>
             {equipe.equipeNom}
             {equipe.estGagnante && <span className="text-accent ml-2 text-xs">GAGNANTE</span>}
           </h2>
