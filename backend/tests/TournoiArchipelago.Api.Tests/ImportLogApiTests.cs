@@ -113,6 +113,10 @@ public class ImportLogApiTests
         Assert.Equal("Les Nous_", alice.EquipeNom);
         Assert.Equal("A Link to the Past", alice.JeuNom);
 
+        // La taille du monde accompagne la courbe : c'est elle qui situe la progression par
+        // rapport a son terme, et qui trace le seuil du jeu sur le graphique.
+        Assert.Equal(3, alice.TotalChecks);
+
         // La liberation n'apparait pas dans la courbe.
         Assert.DoesNotContain(3_600, alice.Secondes);
 

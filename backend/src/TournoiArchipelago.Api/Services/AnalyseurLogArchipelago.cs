@@ -8,62 +8,46 @@ namespace TournoiArchipelago.Api.Services;
 /// Lit un journal de serveur Archipelago et en tire, par joueur, le nombre de checks trouves,
 /// le total de son monde et l'instant de sa completion.
 ///
-/// Le point delicat est la LIBERATION. Quand un joueur atteint son objectif, le serveur vide
-/// d'un coup toutes les localisations qu'il n'avait pas trouvees, sous la meme forme
-/// « X sent ... to Y (lieu) ». Sur le journal de reference, cela represente 229 lignes sur 446
-/// pour un joueur : compter naivement les lignes doublerait son score.
+/// Le point delicat est que toutes les lignes ne se valent pas. Trois evenements produisent la
+/// meme forme « X sent ... to Y (lieu) », et deux d'entre eux ne sont pas des checks :
 ///
-/// Deux consequences :
-///   - les checks REELLEMENT trouves sont ceux horodates STRICTEMENT avant l'objectif du
-///     joueur ;
-///   - le total de son monde est le nombre total de ses lignes, la liberation ayant justement
-///     enumere le reste. Ce total n'est donc connu que pour un joueur ayant termine.
+///   - un CHECK : le joueur a fouille son monde et trouve une localisation ;
+///   - la LIBERATION : a la completion, le serveur vide d'un coup toutes les localisations du
+///     monde du joueur qui appartenaient aux autres. L'emetteur est le joueur qui termine ;
+///   - la COLLECTE : a la completion aussi, le serveur ramasse tous les objets du joueur ou
+///     qu'ils soient. L'emetteur est alors le monde qui detenait la localisation, c'est-a-dire
+///     souvent UN AUTRE JOUEUR, qui n'a rien fouille.
+///
+/// La collecte est la plus traitre : elle crediterait des checks a un joueur qui n'a pas encore
+/// fini, et aucune regle fondee sur son propre objectif ne peut la voir. Les deux rafales sont
+/// heureusement annoncees par une ligne dediee ; on les suit donc explicitement.
+///
+/// Le total du monde, lui, est le nombre de lignes dont le joueur est l'emetteur, tous
+/// evenements confondus : chaque localisation de son monde en produit exactement une, qu'il
+/// l'ait trouvee, qu'elle ait ete collectee par son proprietaire ou qu'il l'ait liberee. Ce
+/// total n'a de sens que pour un joueur ayant termine, faute de quoi son monde n'a pas ete
+/// vide.
 /// </summary>
 public static partial class AnalyseurLogArchipelago
 {
     /// <summary>Nombre de lignes au-dela duquel on refuse le fichier.</summary>
     public const int MaxLignes = 200_000;
 
+    /// <summary>Genre de rafale en cours, le temps de la traverser.</summary>
+    private enum Rafale
+    {
+        Aucune,
+        Collecte,
+        Liberation,
+    }
+
     public static RapportLogDto Analyser(string contenu)
     {
-        var evenements = new List<(DateTime Horodatage, string Message)>();
-        var lignesLues = 0;
-        var lignesIgnorees = 0;
+        var evenements = LireEvenements(contenu, out var lignesLues, out var lignesIgnorees);
 
-        foreach (var ligne in LireLignes(contenu))
-        {
-            lignesLues++;
-
-            if (lignesLues > MaxLignes)
-            {
-                throw new Infrastructure.RequeteInvalideException(
-                    "log",
-                    $"Le journal depasse {MaxLignes:N0} lignes.");
-            }
-
-            var entete = Entete().Match(ligne);
-            if (!entete.Success)
-            {
-                lignesIgnorees++;
-                continue;
-            }
-
-            if (!DateTime.TryParseExact(
-                    entete.Groups[1].Value,
-                    "yyyy-MM-dd HH:mm:ss",
-                    CultureInfo.InvariantCulture,
-                    DateTimeStyles.None,
-                    out var horodatage))
-            {
-                lignesIgnorees++;
-                continue;
-            }
-
-            horodatage = horodatage.AddMilliseconds(int.Parse(entete.Groups[2].Value, CultureInfo.InvariantCulture));
-            evenements.Add((horodatage, entete.Groups[3].Value));
-        }
-
-        var checks = new List<(DateTime Horodatage, string Alias)>();
+        // Par alias : les checks reellement trouves, et toutes les lignes qu'il a emises.
+        var trouves = new Dictionary<string, List<DateTime>>(StringComparer.Ordinal);
+        var emises = new Dictionary<string, int>(StringComparer.Ordinal);
         var jeuParAlias = new Dictionary<string, string>(StringComparer.Ordinal);
         var objectifParAlias = new Dictionary<string, DateTime>(StringComparer.Ordinal);
         var signaux = new Dictionary<string, (int Nb, string Exemple)>(StringComparer.Ordinal);
@@ -75,13 +59,65 @@ public static partial class AnalyseurLogArchipelago
                 : (1, exemple);
         }
 
+        var rafale = Rafale.Aucune;
+        var beneficiaire = string.Empty;
+
         foreach (var (horodatage, message) in evenements)
         {
             var check = Check().Match(message);
             if (check.Success)
             {
-                checks.Add((horodatage, check.Groups[1].Value));
-                Compter(SignauxLog.Check, message);
+                var emetteur = check.Groups[1].Value;
+                var destinataire = check.Groups[2].Value;
+
+                emises[emetteur] = emises.GetValueOrDefault(emetteur) + 1;
+
+                // Une rafale se reconnait a son sens : la collecte converge vers celui qui
+                // termine, la liberation part de lui.
+                var dansRafale = rafale switch
+                {
+                    Rafale.Collecte => destinataire == beneficiaire,
+                    Rafale.Liberation => emetteur == beneficiaire,
+                    _ => false,
+                };
+
+                if (dansRafale)
+                {
+                    Compter(rafale == Rafale.Collecte ? SignauxLog.Collecte : SignauxLog.Liberation, message);
+                }
+                else
+                {
+                    if (!trouves.TryGetValue(emetteur, out var siens))
+                    {
+                        trouves[emetteur] = siens = [];
+                    }
+
+                    siens.Add(horodatage);
+                    Compter(SignauxLog.Check, message);
+                }
+
+                continue;
+            }
+
+            // Toute ligne qui n'est pas un envoi clot la rafale : les deux se suivent d'un
+            // seul bloc, a la milliseconde.
+            rafale = Rafale.Aucune;
+
+            var collecte = Collecte().Match(message);
+            if (collecte.Success)
+            {
+                rafale = Rafale.Collecte;
+                beneficiaire = Slot(collecte);
+                Compter(SignauxLog.Collecte, message);
+                continue;
+            }
+
+            var liberation = Liberation().Match(message);
+            if (liberation.Success)
+            {
+                rafale = Rafale.Liberation;
+                beneficiaire = Slot(liberation);
+                Compter(SignauxLog.Liberation, message);
                 continue;
             }
 
@@ -89,7 +125,7 @@ public static partial class AnalyseurLogArchipelago
             if (connexion.Success)
             {
                 // Un joueur peut se reconnecter : le premier jeu annonce fait foi.
-                jeuParAlias.TryAdd(connexion.Groups[1].Value, connexion.Groups[2].Value.Trim());
+                jeuParAlias.TryAdd(Slot(connexion), connexion.Groups[3].Value.Trim());
                 Compter(SignauxLog.Connexion, message);
                 continue;
             }
@@ -97,7 +133,7 @@ public static partial class AnalyseurLogArchipelago
             var objectif = Objectif().Match(message);
             if (objectif.Success)
             {
-                objectifParAlias.TryAdd(objectif.Groups[1].Value, horodatage);
+                objectifParAlias.TryAdd(Slot(objectif), horodatage);
                 Compter(SignauxLog.Objectif, message);
                 continue;
             }
@@ -105,7 +141,8 @@ public static partial class AnalyseurLogArchipelago
             Compter(Classer(message), message);
         }
 
-        var alias = checks.Select(c => c.Alias)
+        var alias = trouves.Keys
+            .Concat(emises.Keys)
             .Concat(jeuParAlias.Keys)
             .Concat(objectifParAlias.Keys)
             .Distinct(StringComparer.Ordinal)
@@ -113,23 +150,22 @@ public static partial class AnalyseurLogArchipelago
 
         var joueurs = alias.Select(a =>
         {
-            var siens = checks.Where(c => c.Alias == a).Select(c => c.Horodatage).OrderBy(t => t).ToList();
-            var objectif = objectifParAlias.TryGetValue(a, out var o) ? o : (DateTime?)null;
+            var siens = trouves.GetValueOrDefault(a) ?? [];
+            siens.Sort();
 
-            // Sans objectif, la liberation n'a pas eu lieu : toutes les lignes sont de vrais
-            // checks, mais le total du monde reste inconnu.
-            var trouves = objectif is null ? siens : [.. siens.Where(t => t < objectif.Value)];
+            var objectif = objectifParAlias.TryGetValue(a, out var o) ? o : (DateTime?)null;
 
             return new JoueurLogDto(
                 Alias: a,
                 Jeu: jeuParAlias.GetValueOrDefault(a),
-                ChecksTrouves: trouves.Count,
-                TotalChecks: objectif is null ? null : siens.Count,
-                PremierCheck: trouves.Count > 0 ? trouves[0] : null,
-                DernierCheck: trouves.Count > 0 ? trouves[^1] : null,
+                ChecksTrouves: siens.Count,
+                // Sans completion, le monde n'a pas ete vide : sa taille reste inconnue.
+                TotalChecks: objectif is null ? null : emises.GetValueOrDefault(a),
+                PremierCheck: siens.Count > 0 ? siens[0] : null,
+                DernierCheck: siens.Count > 0 ? siens[^1] : null,
                 Objectif: objectif,
                 EstAbandon: objectif is null,
-                Horodatages: trouves);
+                Horodatages: siens);
         }).ToList();
 
         return new RapportLogDto(
@@ -187,22 +223,76 @@ public static partial class AnalyseurLogArchipelago
     /// <summary>Familles reconnues mais non exploitees pour le classement.</summary>
     private static string Classer(string message) => message switch
     {
-        _ when message.Contains("has released all remaining", StringComparison.Ordinal) => SignauxLog.Liberation,
-        _ when message.Contains("has collected their items", StringComparison.Ordinal) => SignauxLog.Collecte,
         _ when message.Contains("has completed all of their games", StringComparison.Ordinal) => SignauxLog.EquipeTerminee,
         _ when message.Contains("has left the game", StringComparison.Ordinal) => SignauxLog.Depart,
         _ when message.Contains("has stopped tracking", StringComparison.Ordinal) => SignauxLog.SuiviArrete,
-        // Un tracker (PopTracker) se branche : distinct de « playing », qui est le joueur.
+        _ when message.Contains("has stopped viewing", StringComparison.Ordinal) => SignauxLog.SuiviArrete,
+        // Un tracker (PopTracker) ou un spectateur se branche : distinct de « playing », qui
+        // est le joueur lui-meme.
         _ when Suivi().IsMatch(message) => SignauxLog.SuiviDemarre,
         _ when message.Contains("[Hint]:", StringComparison.Ordinal) => SignauxLog.Indice,
         _ when message.StartsWith("Hosting game at", StringComparison.Ordinal) => SignauxLog.Hebergement,
         _ when message.StartsWith("Loading embedded data package", StringComparison.Ordinal) => SignauxLog.ChargementJeu,
         _ when message.StartsWith("Loaded save file", StringComparison.Ordinal) => SignauxLog.Sauvegarde,
         _ when message.StartsWith("Shutting down", StringComparison.Ordinal) => SignauxLog.Arret,
+        _ when message.StartsWith("A client connection was refused", StringComparison.Ordinal) => SignauxLog.ConnexionRefusee,
         _ when message.StartsWith("Notice (Player ", StringComparison.Ordinal) => SignauxLog.MessageServeur,
         _ when Bavardage().IsMatch(message) => SignauxLog.Bavardage,
         _ => SignauxLog.Inconnu,
     };
+
+    /// <summary>
+    /// Nom d'emplacement de l'acteur d'une ligne. Le serveur l'ecrit « W1ALTTP » tant que le
+    /// joueur n'a pas pose de pseudonyme, puis « Moi_Eva (W1ALTTP) » apres un <c>!alias</c>.
+    /// Seul l'emplacement se retrouve dans les lignes d'envoi : c'est lui qu'on retient.
+    /// </summary>
+    private static string Slot(Match correspondance) =>
+        correspondance.Groups[1].Success ? correspondance.Groups[1].Value : correspondance.Groups[2].Value;
+
+    private static List<(DateTime Horodatage, string Message)> LireEvenements(
+        string contenu,
+        out int lignesLues,
+        out int lignesIgnorees)
+    {
+        var evenements = new List<(DateTime, string)>();
+        lignesLues = 0;
+        lignesIgnorees = 0;
+
+        foreach (var ligne in LireLignes(contenu))
+        {
+            lignesLues++;
+
+            if (lignesLues > MaxLignes)
+            {
+                throw new Infrastructure.RequeteInvalideException(
+                    "log",
+                    $"Le journal depasse {MaxLignes:N0} lignes.");
+            }
+
+            var entete = Entete().Match(ligne);
+            if (!entete.Success)
+            {
+                lignesIgnorees++;
+                continue;
+            }
+
+            if (!DateTime.TryParseExact(
+                    entete.Groups[1].Value,
+                    "yyyy-MM-dd HH:mm:ss",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var horodatage))
+            {
+                lignesIgnorees++;
+                continue;
+            }
+
+            horodatage = horodatage.AddMilliseconds(int.Parse(entete.Groups[2].Value, CultureInfo.InvariantCulture));
+            evenements.Add((horodatage, entete.Groups[3].Value));
+        }
+
+        return evenements;
+    }
 
     private static IEnumerable<string> LireLignes(string contenu)
     {
@@ -219,27 +309,39 @@ public static partial class AnalyseurLogArchipelago
     private static string Tronquer(string message) =>
         message.Length <= 120 ? message : message[..117] + "...";
 
+    /// <summary>
+    /// L'acteur d'une ligne, sous ses deux ecritures : « ALIAS (SLOT) » ou « SLOT » seul. Les
+    /// deux groupes sont exclusifs, <see cref="Slot"/> choisit celui qui a matche.
+    /// </summary>
+    private const string Acteur = @"(?:.+? \(([^()]+)\)|(\S+))";
+
     [GeneratedRegex(@"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),(\d{1,3})\]: (.*)$")]
     private static partial Regex Entete();
 
     /// <summary>
-    /// « (Team #1) W2FF4 sent Sword to W7Z1 (Baron Castle -- 1F) » : le check appartient a
-    /// l'EXPEDITEUR, qui l'a trouve dans son monde. Le destinataire n'est que le proprietaire
-    /// de l'objet.
+    /// « (Team #1) W2FF4 sent Sword to W7Z1 (Baron Castle -- 1F) » : hors rafale, le check
+    /// appartient a l'EXPEDITEUR, qui l'a trouve dans son monde. Le destinataire n'est que le
+    /// proprietaire de l'objet — mais il sert a reconnaitre le sens d'une rafale.
     /// </summary>
-    [GeneratedRegex(@"^\(Team #\d+\) (\S+) sent .+? to \S+ \(.+\)$")]
+    [GeneratedRegex(@"^\(Team #\d+\) (\S+) sent .+? to (\S+) \(.+\)$")]
     private static partial Regex Check();
 
-    [GeneratedRegex(@"^Notice \(all\): (\S+) \(Team #\d+\) playing (.+?) has joined\.")]
+    [GeneratedRegex($@"^Notice \(all\): {Acteur} \(Team #\d+\) playing (.+?) has joined\.")]
     private static partial Regex Connexion();
 
-    [GeneratedRegex(@"^Notice \(all\): (\S+) \(Team #\d+\) has completed their goal\.$")]
+    [GeneratedRegex($@"^Notice \(all\): {Acteur} \(Team #\d+\) has completed their goal\.$")]
     private static partial Regex Objectif();
 
-    [GeneratedRegex(@"^Notice \(all\): \S+: ")]
+    [GeneratedRegex($@"^Notice \(all\): {Acteur} \(Team #\d+\) has collected their items from other worlds\.$")]
+    private static partial Regex Collecte();
+
+    [GeneratedRegex($@"^Notice \(all\): {Acteur} \(Team #\d+\) has released all remaining items from their world\.$")]
+    private static partial Regex Liberation();
+
+    [GeneratedRegex(@"^Notice \(all\): \S+.*: ")]
     private static partial Regex Bavardage();
 
-    [GeneratedRegex(@"^Notice \(all\): \S+ \(Team #\d+\) tracking .+ has joined\.")]
+    [GeneratedRegex(@"^Notice \(all\): .*\(Team #\d+\) (tracking|viewing) .+ has joined\.")]
     private static partial Regex Suivi();
 }
 
@@ -248,6 +350,7 @@ public static class SignauxLog
 {
     public const string Check = "check";
     public const string Connexion = "connexion";
+    public const string ConnexionRefusee = "connexion-refusee";
     public const string Objectif = "objectif";
     public const string Liberation = "liberation";
     public const string Collecte = "collecte";

@@ -32,6 +32,97 @@ public class AnalyseurLogArchipelagoTests
     private static JoueurLogDto Joueur(RapportLogDto rapport, string alias) =>
         rapport.Joueurs.Single(j => j.Alias == alias);
 
+    /// <summary>
+    /// Extrait fidele au journal du tournoi : les deux joueurs ont pose un <c>!alias</c>, donc
+    /// le serveur les designe « Pseudo (SLOT) », et la completion du premier declenche une
+    /// collecte qui puise dans le monde du second.
+    /// </summary>
+    private const string JournalAvecAlias = """
+        [2026-09-14 00:10:00,000]: Notice (all): W1ALTTP (Team #1) playing A Link to the Past has joined. Client(0.6.7), ['AP'].
+        [2026-09-14 00:10:01,000]: Notice (all): W1SM (Team #1) playing Super Metroid has joined. Client(0.6.7), ['AP'].
+        [2026-09-14 00:11:00,000]: Notice (all): W1ALTTP: !alias Moi_Eva
+        [2026-09-14 00:20:00,000]: (Team #1) W1ALTTP sent Bow to W1ALTTP (Eastern Palace - Boss)
+        [2026-09-14 00:21:00,000]: (Team #1) W1SM sent Bombs to W1ALTTP (Missile (Draygon))
+        [2026-09-14 00:58:56,114]: Notice (all): Moi_Eva (W1ALTTP) (Team #1) has completed their goal.
+        [2026-09-14 00:58:56,114]: Notice (all): W1ALTTP (Team #1) has collected their items from other worlds.
+        [2026-09-14 00:58:56,114]: (Team #1) W1ALTTP sent Bombos to W1ALTTP (Ice Palace - Freezor Chest)
+        [2026-09-14 00:58:56,121]: (Team #1) W1SM sent Big Key to W1ALTTP (Ice Beam)
+        [2026-09-14 00:58:56,121]: (Team #1) W1SM sent Small Key to W1ALTTP (Missile (pink Maridia))
+        [2026-09-14 00:58:56,122]: Notice (all): W1ALTTP (Team #1) has released all remaining items from their world.
+        [2026-09-14 00:58:56,122]: (Team #1) W1ALTTP sent Energy Tank to W1SM (Skull Woods - Big Chest)
+        [2026-09-14 00:58:56,122]: (Team #1) W1ALTTP sent Energy Tank to W1SM (Turtle Rock - Eye Bridge)
+        """;
+
+    [Fact]
+    public void L_objectif_est_reconnu_meme_quand_le_joueur_a_pose_un_pseudonyme()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(JournalAvecAlias);
+
+        // Le serveur ecrit « Moi_Eva (W1ALTTP) », mais les lignes d'envoi ne connaissent que
+        // l'emplacement : c'est donc lui qui doit etre retenu, sans quoi l'objectif est
+        // rattache a un joueur fantome et le vrai passe pour un abandon.
+        var alttp = Joueur(rapport, "W1ALTTP");
+        Assert.False(alttp.EstAbandon);
+        Assert.NotNull(alttp.Objectif);
+        Assert.DoesNotContain(rapport.Joueurs, j => j.Alias == "Moi_Eva");
+    }
+
+    [Fact]
+    public void La_collecte_d_un_joueur_ne_credite_pas_de_checks_a_un_autre()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(JournalAvecAlias);
+
+        // W1SM n'a trouve qu'une localisation. Les deux autres lignes a son nom viennent de
+        // la collecte de W1ALTTP, qui a vide son monde des objets lui appartenant : il n'a
+        // rien fouille. Aucune regle fondee sur l'objectif de W1SM ne pourrait le voir, il
+        // n'a pas encore termine.
+        var metroid = Joueur(rapport, "W1SM");
+        Assert.Equal(1, metroid.ChecksTrouves);
+        Assert.True(metroid.EstAbandon);
+        Assert.Null(metroid.TotalChecks);
+    }
+
+    [Fact]
+    public void Le_total_du_monde_compte_toutes_les_lignes_emises_par_le_joueur()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(JournalAvecAlias);
+        var alttp = Joueur(rapport, "W1ALTTP");
+
+        // Une localisation de son monde produit exactement une ligne a son nom, qu'il l'ait
+        // trouvee (1), qu'elle ait ete collectee par son proprietaire (1) ou qu'il l'ait
+        // liberee (2).
+        Assert.Equal(1, alttp.ChecksTrouves);
+        Assert.Equal(4, alttp.TotalChecks);
+    }
+
+    [Fact]
+    public void La_rafale_ne_figure_pas_dans_la_progression()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(JournalAvecAlias);
+
+        // La courbe ne doit pas finir par un saut vertical jusqu'a la taille du monde.
+        Assert.Equal([new DateTime(2026, 9, 14, 0, 20, 0)], Joueur(rapport, "W1ALTTP").Horodatages);
+        Assert.Equal([new DateTime(2026, 9, 14, 0, 21, 0)], Joueur(rapport, "W1SM").Horodatages);
+    }
+
+    [Fact]
+    public void Un_spectateur_est_reconnu_et_ne_devient_pas_un_joueur()
+    {
+        var journal = """
+            [2026-09-14 00:10:00,000]: Notice (all): W1SM (Team #1) viewing Super Metroid has joined. Client(0.6.7), ['Tracker'].
+            [2026-09-14 00:10:01,000]: Notice (all): Moi_Eva (W1ALTTP) (Team #1) viewing A Link to the Past has joined. Client(0.6.7), ['Tracker'].
+            [2026-09-14 00:20:00,000]: Notice (all): Moi_Eva (W1ALTTP) (Team #1) has stopped viewing the game.
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+        var signaux = rapport.Signaux.ToDictionary(s => s.Signal, s => s.Occurrences);
+
+        Assert.Equal(2, signaux[SignauxLog.SuiviDemarre]);
+        Assert.Equal(1, signaux[SignauxLog.SuiviArrete]);
+        Assert.False(signaux.ContainsKey(SignauxLog.Inconnu));
+        Assert.Empty(rapport.Joueurs);
+    }
+
     [Fact]
     public void Le_depart_est_estime_au_premier_check_pas_a_l_ouverture_du_serveur()
     {
@@ -169,10 +260,10 @@ public class AnalyseurLogArchipelagoTests
     }
 
     [Fact]
-    public void Un_check_au_meme_instant_que_l_objectif_est_compte_comme_libere()
+    public void Le_check_qui_declenche_l_objectif_compte_bien_qu_il_soit_au_meme_instant()
     {
-        // La frontiere est stricte : sur le journal de reference, la rafale de liberation
-        // commence dans la meme milliseconde que l'objectif.
+        // Une rafale se reconnait a son annonce, pas a l'horodatage : le check gagnant, emis
+        // dans la meme milliseconde que l'objectif, reste un vrai check.
         var journal = """
             [2026-09-03 22:00:00,000]: Notice (all): A (Team #1) playing Jeu has joined. Client(0.6.7), ['AP'].
             [2026-09-03 23:00:00,000]: (Team #1) A sent X to A (Lieu 1)
@@ -182,7 +273,7 @@ public class AnalyseurLogArchipelagoTests
 
         var a = AnalyseurLogArchipelago.Analyser(journal).Joueurs.Single();
 
-        Assert.Equal(1, a.ChecksTrouves);
+        Assert.Equal(2, a.ChecksTrouves);
         Assert.Equal(2, a.TotalChecks);
     }
 
@@ -192,10 +283,12 @@ public class AnalyseurLogArchipelagoTests
         var rapport = AnalyseurLogArchipelago.Analyser(Journal);
         var signaux = rapport.Signaux.ToDictionary(s => s.Signal, s => s.Occurrences);
 
-        Assert.Equal(5, signaux[SignauxLog.Check]);
+        // Trois vrais checks : les deux envois de la rafale sont comptes en liberation, avec
+        // son annonce, plutot que confondus avec des checks.
+        Assert.Equal(3, signaux[SignauxLog.Check]);
+        Assert.Equal(3, signaux[SignauxLog.Liberation]);
         Assert.Equal(2, signaux[SignauxLog.Connexion]);
         Assert.Equal(1, signaux[SignauxLog.Objectif]);
-        Assert.Equal(1, signaux[SignauxLog.Liberation]);
         Assert.Equal(1, signaux[SignauxLog.Collecte]);
         Assert.Equal(1, signaux[SignauxLog.Depart]);
         Assert.Equal(1, signaux[SignauxLog.SuiviDemarre]);
