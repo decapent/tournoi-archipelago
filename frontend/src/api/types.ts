@@ -98,6 +98,11 @@ export interface ClassementEquipe {
   victoires: number
   tempsCumuleSecs: number
   tempsMoyenSecs: number | null
+  /**
+   * Temps de l'equipe rapporte a celui de son adversaire, moyenne sur ses matchs. Sous 1,
+   * l'equipe a ete plus rapide ; au-dela, plus lente. Null sans aucun match joue.
+   */
+  tempsRelatif: number | null
   checksTrouves: number
   pourcentCompleteMoyen: number | null
   abandons: number

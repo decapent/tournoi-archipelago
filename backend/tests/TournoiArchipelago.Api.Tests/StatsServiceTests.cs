@@ -135,7 +135,7 @@ public class StatsServiceTests
     }
 
     [Fact]
-    public async Task Une_equipe_sans_match_est_reportee_en_fin_de_classement()
+    public async Task Une_equipe_sans_match_se_classe_entre_les_gagnantes_et_les_perdantes()
     {
         using var contexte = new ContexteDeTest();
         var donnees = await SemerAsync(contexte);
@@ -158,9 +158,76 @@ public class StatsServiceTests
         var service = new StatsService(contexte.Creer());
         var classement = await service.ClassementAsync(null, TriClassement.Temps);
 
-        Assert.Equal(3, classement.Count);
-        Assert.Equal("AGreatTeam", classement[^1].EquipeNom);
-        Assert.Equal(0, classement[^1].MatchsJoues);
+        // Sans match, l'equipe n'a pas de temps relatif : elle vaut 100 %, donc devant les
+        // 900 % de la perdante et derriere les 11 % de la gagnante.
+        Assert.Equal(
+            ["Les Nous_", "AGreatTeam", "No M's Land"],
+            classement.Select(l => l.EquipeNom));
+
+        var sansMatch = classement.Single(l => l.EquipeNom == "AGreatTeam");
+        Assert.Equal(0, sansMatch.MatchsJoues);
+        Assert.Null(sansMatch.TempsRelatif);
+        Assert.Equal(2, sansMatch.Position);
+    }
+
+    [Fact]
+    public async Task Le_temps_relatif_oppose_le_temps_de_l_equipe_a_celui_de_son_adversaire()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Equipe A retenue sur 1 000 s, equipe B sur 1 425 s.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 1_000),
+            new(donnees.Bob, donnees.Metroid, 800),
+            new(donnees.Chloe, donnees.Alttp, 1_425),
+            new(donnees.David, donnees.Metroid, 900),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var classement = await service.ClassementAsync(null, TriClassement.Victoires);
+
+        var equipeA = classement.Single(l => l.EquipeNom == "Les Nous_");
+        var equipeB = classement.Single(l => l.EquipeNom == "No M's Land");
+
+        Assert.Equal(1_000d / 1_425d, equipeA.TempsRelatif!.Value, 6);
+        Assert.Equal(1_425d / 1_000d, equipeB.TempsRelatif!.Value, 6);
+
+        // Les deux pourcentages sont reciproques : c'est le meme match vu des deux cotes.
+        Assert.Equal(1, equipeA.TempsRelatif!.Value * equipeB.TempsRelatif!.Value, 6);
+    }
+
+    [Fact]
+    public async Task Le_temps_relatif_moyenne_les_matchs_plutot_que_les_temps()
+    {
+        using var contexte = new ContexteDeTest();
+        var donnees = await SemerAsync(contexte);
+
+        // Match court, largement gagne : 100 s contre 200 s, soit 50 %.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 1),
+        [
+            new(donnees.Alice, donnees.Alttp, 100),
+            new(donnees.Bob, donnees.Metroid, 100),
+            new(donnees.Chloe, donnees.Alttp, 200),
+            new(donnees.David, donnees.Metroid, 200),
+        ]);
+
+        // Match long, tout juste perdu : 10 000 s contre 8 000 s, soit 125 %.
+        await AjouterMatchAsync(contexte, TypeMatch.TOURNOI, new DateOnly(2026, 9, 2),
+        [
+            new(donnees.Alice, donnees.Alttp, 10_000),
+            new(donnees.Bob, donnees.Metroid, 9_000),
+            new(donnees.Chloe, donnees.Alttp, 8_000),
+            new(donnees.David, donnees.Metroid, 7_000),
+        ]);
+
+        var service = new StatsService(contexte.Creer());
+        var classement = await service.ClassementAsync(null, TriClassement.Victoires);
+
+        // Chaque match pese autant : (0,5 + 1,25) / 2. Un rapport des temps cumules aurait
+        // donne 10 100 / 8 200, soit 123 %, le long match ecrasant le court.
+        Assert.Equal(0.875, classement.Single(l => l.EquipeNom == "Les Nous_").TempsRelatif!.Value, 6);
     }
 
     [Fact]

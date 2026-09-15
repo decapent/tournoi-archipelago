@@ -4,6 +4,7 @@ import { useMatchs } from '../api/hooks'
 import type { TypeMatch } from '../api/types'
 import { Chargement, Erreur, Vide } from '../components/Etats'
 import { FiltreType } from '../components/FiltreType'
+import { styleEquipe } from '../lib/couleursEquipes'
 import { ABSENT, formaterDate } from '../lib/format'
 
 export function MatchsPage() {
@@ -66,10 +67,22 @@ export function MatchsPage() {
                   <tr key={match.id}>
                     <td className="tabular-nums">{formaterDate(match.date)}</td>
                     <td className="text-texte-doux text-xs">{match.type}</td>
-                    <td>{match.equipeNoms.join('  vs  ')}</td>
+                    <td>
+                      {match.equipeNoms.map((nom, rang) => (
+                        <span key={nom}>
+                          {rang > 0 && <span className="text-texte-doux"> vs </span>}
+                          <span style={styleEquipe(nom)}>{nom}</span>
+                        </span>
+                      ))}
+                    </td>
                     <td className="font-medium">
                       {match.estComplet ? (
-                        <span className="text-accent">{match.equipeGagnanteNom ?? ABSENT}</span>
+                        <span
+                          className={match.equipeGagnanteNom === null ? 'text-accent' : 'font-medium'}
+                          style={styleEquipe(match.equipeGagnanteNom)}
+                        >
+                          {match.equipeGagnanteNom ?? ABSENT}
+                        </span>
                       ) : (
                         <span className="text-texte-doux text-xs">
                           en cours, {match.nbResultatsEnAttente} temps a saisir

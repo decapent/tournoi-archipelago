@@ -8,6 +8,11 @@ public record ClassementEquipeDto(
     int Victoires,
     int TempsCumuleSecs,
     double? TempsMoyenSecs,
+    /// <summary>
+    /// Temps de l'equipe rapporte a celui de son adversaire, moyenne sur ses matchs. Sous 1,
+    /// l'equipe a ete plus rapide ; au-dela, plus lente. Null sans aucun match joue.
+    /// </summary>
+    double? TempsRelatif,
     int ChecksTrouves,
     double? PourcentCompleteMoyen,
     int Abandons,

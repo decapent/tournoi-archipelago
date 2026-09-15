@@ -3,6 +3,7 @@ import { useStatsJoueurs } from '../api/hooks'
 import type { StatsJoueur, TypeMatch } from '../api/types'
 import { Chargement, Erreur, Vide } from '../components/Etats'
 import { FiltreType } from '../components/FiltreType'
+import { styleEquipe } from '../lib/couleursEquipes'
 import { formaterNombre, formaterPourcent, formaterTemps } from '../lib/format'
 
 type Colonne = keyof Pick<
@@ -136,7 +137,7 @@ export function StatsJoueursPage() {
                 {lignes.map((joueur) => (
                   <tr key={joueur.joueurId}>
                     <td className="font-medium">{joueur.joueurNom}</td>
-                    <td className="text-texte-doux">{joueur.equipeNom}</td>
+                    <td style={styleEquipe(joueur.equipeNom)}>{joueur.equipeNom}</td>
                     <td className="num">{joueur.seedsJouees}</td>
                     <td className="num">{joueur.victoires}</td>
                     <td className="num">{formaterTemps(joueur.tempsMoyenSecs)}</td>
