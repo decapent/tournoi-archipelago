@@ -4,6 +4,7 @@ import { useMatch, useProgression, useSupprimerMatch } from '../api/hooks'
 import type { EquipeResultat } from '../api/types'
 import { useAuth } from '../auth/contexte'
 import { Chargement, Erreur } from '../components/Etats'
+import { GraphiqueIndices } from '../components/GraphiqueIndices'
 import { GraphiqueProgression } from '../components/GraphiqueProgression'
 import { ImportLogEquipe } from '../components/ImportLogEquipe'
 import { styleEquipe } from '../lib/couleursEquipes'
@@ -105,6 +106,23 @@ export function MatchDetailPage() {
           <GraphiqueProgression joueurs={progression.joueurs} />
         </article>
       )}
+
+      {progression !== undefined &&
+        progression.joueurs.some((joueur) => joueur.indices.length > 0) && (
+          <article className="panneau mt-4 p-4">
+            <header className="mb-3">
+              <h2 className="font-semibold">Demandes d indice</h2>
+              <p className="text-texte-doux mt-0.5 text-xs">
+                Chaque demande situee dans la course, sur le meme axe que la progression : un
+                paquet de marqueurs tombe la ou la courbe plafonne. Un indice se paie en
+                points gagnes en trouvant des checks, et son prix depend de la taille du
+                monde.
+              </p>
+            </header>
+
+            <GraphiqueIndices joueurs={progression.joueurs} />
+          </article>
+        )}
     </section>
   )
 }

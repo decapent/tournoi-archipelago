@@ -234,6 +234,8 @@ public class StatsService(TournoiDbContext db)
                     }
 
                     cumul.ChecksTrouves += ligne.NbChecks ?? 0;
+                    cumul.IndicesDemandes += ligne.NbIndicesDemandes ?? 0;
+                    cumul.IndicesObtenus += ligne.NbIndicesObtenus ?? 0;
 
                     if (ligne.PourcentComplete is not null)
                     {
@@ -271,7 +273,9 @@ public class StatsService(TournoiDbContext db)
                     ? cumul.ChecksDesSeedsTerminees * 3600.0 / cumul.SecondesDeJeu
                     : null,
                 NbAbandons: cumul.Abandons,
-                SeedsDeterminantes: cumul.Determinantes);
+                SeedsDeterminantes: cumul.Determinantes,
+                IndicesDemandes: cumul.IndicesDemandes,
+                IndicesObtenus: cumul.IndicesObtenus);
         });
 
         return [.. stats
@@ -321,6 +325,10 @@ public class StatsService(TournoiDbContext db)
         public int SecondesDeJeu { get; set; }
 
         public int Determinantes { get; set; }
+
+        public int IndicesDemandes { get; set; }
+
+        public int IndicesObtenus { get; set; }
 
         /// <summary>Sa seed la plus rapide, abandons exclus.</summary>
         public MatchJeu? Meilleure { get; set; }

@@ -21,6 +21,18 @@ public class MatchJeu
     public int? NbChecks { get; set; }
 
     /// <summary>
+    /// Nombre de fois ou le joueur a demande un indice, abouti ou non. Mesure ce qu'il a
+    /// cherche, pas ce qu'il a obtenu.
+    /// </summary>
+    public int? NbIndicesDemandes { get; set; }
+
+    /// <summary>
+    /// Nombre d'emplacements differents que les indices lui ont reveles. Plus petit que le
+    /// nombre de demandes abouties : redemander un indice connu le reaffiche gratuitement.
+    /// </summary>
+    public int? NbIndicesObtenus { get; set; }
+
+    /// <summary>
     /// Temps brut en secondes : temps de completion, ou instant de l'abandon quand
     /// <see cref="EstAbandon"/> est vrai. <c>null</c> signifie que le resultat n'a pas encore
     /// ete saisi, un match pouvant etre rempli au fur et a mesure.

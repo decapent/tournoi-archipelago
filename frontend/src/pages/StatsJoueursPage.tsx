@@ -19,6 +19,8 @@ type Colonne = keyof Pick<
   | 'pourcentCompleteMoyen'
   | 'checksParHeure'
   | 'seedsDeterminantes'
+  | 'indicesDemandes'
+  | 'indicesObtenus'
   | 'nbAbandons'
 >
 
@@ -44,6 +46,20 @@ const COLONNES: { cle: Colonne; libelle: string; numerique: boolean; infobulle?:
     numerique: true,
     infobulle:
       "Nombre de fois ou sa seed a fixe le temps de son equipe, en etant la plus longue. L'equipe a fini quand son dernier joueur a fini.",
+  },
+  {
+    cle: 'indicesDemandes',
+    libelle: 'Indices demandes',
+    numerique: true,
+    infobulle:
+      "Demandes d indice, abouties ou non. Un nom d objet mal orthographie ou un refus faute de points compte quand meme : c est ce que le joueur a cherche.",
+  },
+  {
+    cle: 'indicesObtenus',
+    libelle: 'Indices obtenus',
+    numerique: true,
+    infobulle:
+      'Emplacements differents que les indices ont reveles. Plus petit que le nombre de demandes abouties : redemander un indice connu le reaffiche gratuitement.',
   },
   { cle: 'nbAbandons', libelle: 'Abandons', numerique: true },
 ]
@@ -147,6 +163,8 @@ export function StatsJoueursPage() {
                     <td className="num">{formaterPourcent(joueur.pourcentCompleteMoyen)}</td>
                     <td className="num">{formaterNombre(joueur.checksParHeure, 1)}</td>
                     <td className="num">{joueur.seedsDeterminantes}</td>
+                    <td className="num">{joueur.indicesDemandes}</td>
+                    <td className="num">{joueur.indicesObtenus}</td>
                     <td className="num">
                       {joueur.nbAbandons === 0 ? (
                         <span className="text-texte-doux">0</span>

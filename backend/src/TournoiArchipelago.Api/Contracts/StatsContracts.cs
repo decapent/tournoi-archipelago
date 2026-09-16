@@ -45,7 +45,11 @@ public record StatsJoueurDto(
     /// Nombre de fois ou sa seed a fixe le temps de son equipe, en etant la plus longue. Une
     /// mesure de qui fait attendre les autres.
     /// </summary>
-    int SeedsDeterminantes);
+    int SeedsDeterminantes,
+    /// <summary>Demandes d'indice, abouties ou non : ce qu'il a cherche.</summary>
+    int IndicesDemandes,
+    /// <summary>Emplacements que les indices lui ont reveles : l'aide reellement recue.</summary>
+    int IndicesObtenus);
 
 public record StatsJeuDto(
     int JeuId,

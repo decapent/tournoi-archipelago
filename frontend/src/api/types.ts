@@ -134,6 +134,10 @@ export interface StatsJoueur {
   nbAbandons: number
   /** Nombre de fois ou sa seed a fixe le temps de son equipe, en etant la plus longue. */
   seedsDeterminantes: number
+  /** Demandes d'indice, abouties ou non : ce qu'il a cherche. */
+  indicesDemandes: number
+  /** Emplacements que les indices lui ont reveles : l'aide reellement recue. */
+  indicesObtenus: number
 }
 
 export interface StatsJeu {
@@ -195,6 +199,21 @@ export interface JoueurLog {
   objectif: string | null
   estAbandon: boolean
   horodatages: string[]
+  /** Chaque demande d'indice, dans l'ordre. */
+  indices: IndiceLog[]
+  /** Emplacements differents reellement reveles : un reaffichage ne compte pas deux fois. */
+  indicesDistincts: number
+  /** Parmi eux, ceux pointant un lieu deja visite. L'indice n'apprend alors rien. */
+  indicesDejaTrouves: number
+}
+
+/** Une demande d'indice telle que le journal la raconte. */
+export interface IndiceLog {
+  horodatage: string
+  terme: string
+  resultat: ResultatIndice
+  pointsRestants: number | null
+  cout: number | null
 }
 
 /** Une famille de lignes reconnue dans le journal, avec un exemple. */
@@ -232,6 +251,17 @@ export interface ImportLog {
   correspondances: CorrespondanceAlias[]
 }
 
+/** Ce qu'une demande d'indice a donne. */
+export type ResultatIndice = 'Obtenu' | 'Refuse' | 'SansReponse'
+
+/** Une demande d'indice situee dans la course. */
+export interface IndiceProgression {
+  secondes: number
+  resultat: ResultatIndice
+  /** Solde de points au moment de la demande. Le serveur ne l'annonce qu'en refusant. */
+  pointsRestants: number | null
+}
+
 /** Progression d'un joueur : instant de chaque check, en secondes depuis le depart. */
 export interface ProgressionJoueur {
   joueurId: number
@@ -242,6 +272,7 @@ export interface ProgressionJoueur {
   /** Taille du monde, pour situer la progression par rapport a son terme. */
   totalChecks: number | null
   secondes: number[]
+  indices: IndiceProgression[]
 }
 
 export interface ProgressionMatch {

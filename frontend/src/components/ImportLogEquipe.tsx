@@ -150,6 +150,9 @@ export function ImportLogEquipe({
                 <th>Pseudonyme</th>
                 <th>Jeu du journal</th>
                 <th className="num">Checks</th>
+                <th className="num" title="Demandes d indice, et emplacements differents reveles.">
+                  Indices
+                </th>
                 <th className="num">Fin</th>
                 <th>Joueur</th>
               </tr>
@@ -163,6 +166,21 @@ export function ImportLogEquipe({
                     {joueur.checksTrouves}
                     {joueur.totalChecks !== null && (
                       <span className="text-texte-doux"> / {joueur.totalChecks}</span>
+                    )}
+                  </td>
+                  <td className="num">
+                    {joueur.indices.length === 0 ? (
+                      <span className="text-texte-doux">—</span>
+                    ) : (
+                      <>
+                        {joueur.indices.length}
+                        <span className="text-texte-doux"> dem.</span>
+                        <span className="text-texte-doux block text-xs">
+                          {joueur.indicesDistincts} obtenus
+                          {joueur.indicesDejaTrouves > 0 &&
+                            `, ${joueur.indicesDejaTrouves} deja trouves`}
+                        </span>
+                      </>
                     )}
                   </td>
                   <td className={`num ${joueur.estAbandon ? 'text-alerte' : ''}`}>

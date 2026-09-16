@@ -19,6 +19,10 @@ public class ImportLogApiTests
         [2026-09-03 22:30:00,000]: (Team #1) ALPHA sent Sword to BETA (Lieu 1)
         [2026-09-03 22:40:00,000]: (Team #1) ALPHA sent Bow to ALPHA (Lieu 2)
         [2026-09-03 22:45:00,000]: (Team #1) BETA sent Missile to ALPHA (Brinstar 1)
+        [2026-09-03 22:50:00,000]: Notice (all): ALPHA: !hint Bow
+        [2026-09-03 22:50:00,001]: Notice (Team #1): [Hint]: ALPHA's Bow is at Lieu 9 in BETA's World. (priority)
+        [2026-09-03 22:52:00,000]: Notice (all): ALPHA: !hint Hookshot
+        [2026-09-03 22:52:00,001]: Notice (Player ALPHA in team 1): You can't afford the hint. You have 3 points and need at least 12.
         [2026-09-03 23:00:00,000]: Notice (all): ALPHA (Team #1) has completed their goal.
         [2026-09-03 23:00:00,005]: Notice (all): ALPHA (Team #1) has released all remaining items from their world.
         [2026-09-03 23:00:00,006]: (Team #1) ALPHA sent Potion to ALPHA (Lieu jamais visite)
@@ -139,6 +143,61 @@ public class ImportLogApiTests
 
         Assert.Equal(2, progression!.Joueurs.Single(j => j.JoueurId == p.Alice.Id).Secondes.Count);
     }
+
+    [Fact]
+    public async Task L_import_enregistre_les_demandes_d_indice_et_leurs_compteurs()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var p = await PreparerAsync(api, client);
+
+        await ImporterAsync(client, p);
+
+        var progression = await client.GetFromJsonAsync<ProgressionMatchDto>(
+            $"/api/matchs/{p.MatchId}/progression", ApiDeTest.Json);
+
+        var alice = progression!.Joueurs.Single(j => j.JoueurId == p.Alice.Id);
+
+        // Deux demandes, a 50 et 52 minutes du depart : la premiere aboutie, la seconde
+        // refusee faute de points.
+        Assert.Equal(
+            [
+                new ProgressionIndiceAttendu(3_000, ResultatIndice.Obtenu, null),
+                new ProgressionIndiceAttendu(3_120, ResultatIndice.Refuse, 3),
+            ],
+            alice.Indices.Select(i => new ProgressionIndiceAttendu(
+                i.Secondes, i.Resultat, i.PointsRestants)));
+
+        // Bob n'a rien demande : il figure quand meme, avec sa courbe.
+        var bob = progression.Joueurs.Single(j => j.JoueurId == p.Bob.Id);
+        Assert.Empty(bob.Indices);
+        Assert.NotEmpty(bob.Secondes);
+
+        // Les compteurs se posent sur la ligne de resultat, pour alimenter les statistiques.
+        await using var db = api.CreerContexte();
+        var ligne = db.MatchJeux.Single(mj => mj.MatchId == p.MatchId && mj.JoueurId == p.Alice.Id);
+        Assert.Equal(2, ligne.NbIndicesDemandes);
+        Assert.Equal(1, ligne.NbIndicesObtenus);
+    }
+
+    [Fact]
+    public async Task Reimporter_remplace_les_demandes_d_indice_au_lieu_de_les_empiler()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var p = await PreparerAsync(api, client);
+
+        await ImporterAsync(client, p);
+        await ImporterAsync(client, p);
+
+        var progression = await client.GetFromJsonAsync<ProgressionMatchDto>(
+            $"/api/matchs/{p.MatchId}/progression", ApiDeTest.Json);
+
+        Assert.Equal(2, progression!.Joueurs.Single(j => j.JoueurId == p.Alice.Id).Indices.Count);
+    }
+
+    /// <summary>Forme comparable d'une demande, pour une assertion lisible.</summary>
+    private sealed record ProgressionIndiceAttendu(int Secondes, ResultatIndice Resultat, int? Points);
 
     [Fact]
     public async Task L_import_ne_touche_pas_aux_lignes_de_l_autre_equipe()

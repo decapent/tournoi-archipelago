@@ -21,6 +21,8 @@ public class TournoiDbContext(DbContextOptions<TournoiDbContext> options) : DbCo
 
     public DbSet<CheckHorodate> Checks => Set<CheckHorodate>();
 
+    public DbSet<IndiceHorodate> Indices => Set<IndiceHorodate>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(TournoiDbContext).Assembly);
