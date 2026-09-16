@@ -61,6 +61,7 @@ public static partial class AnalyseurLogArchipelago
 
         var rafale = Rafale.Aucune;
         var beneficiaire = string.Empty;
+        var indices = new SuiviIndices();
 
         foreach (var (horodatage, message) in evenements)
         {
@@ -103,6 +104,12 @@ public static partial class AnalyseurLogArchipelago
             // seul bloc, a la milliseconde.
             rafale = Rafale.Aucune;
 
+            if (indices.Consommer(horodatage, message))
+            {
+                Compter(SignauxLog.Indice, message);
+                continue;
+            }
+
             var collecte = Collecte().Match(message);
             if (collecte.Success)
             {
@@ -141,10 +148,13 @@ public static partial class AnalyseurLogArchipelago
             Compter(Classer(message), message);
         }
 
+        indices.Terminer();
+
         var alias = trouves.Keys
             .Concat(emises.Keys)
             .Concat(jeuParAlias.Keys)
             .Concat(objectifParAlias.Keys)
+            .Concat(indices.Alias)
             .Distinct(StringComparer.Ordinal)
             .OrderBy(a => a, StringComparer.OrdinalIgnoreCase);
 
@@ -165,7 +175,10 @@ public static partial class AnalyseurLogArchipelago
                 DernierCheck: siens.Count > 0 ? siens[^1] : null,
                 Objectif: objectif,
                 EstAbandon: objectif is null,
-                Horodatages: siens);
+                Horodatages: siens,
+                Indices: indices.Demandes(a),
+                IndicesDistincts: indices.NbDistincts(a),
+                IndicesDejaTrouves: indices.NbDejaTrouves(a));
         }).ToList();
 
         return new RapportLogDto(
@@ -179,6 +192,142 @@ public static partial class AnalyseurLogArchipelago
             Fin: evenements.Count > 0 ? evenements[^1].Horodatage : null,
             LignesLues: lignesLues,
             LignesIgnorees: lignesIgnorees);
+    }
+
+    /// <summary>
+    /// Rattache chaque ligne d'indice a la demande qui l'a provoquee.
+    ///
+    /// Le journal ne relie rien explicitement : il faut suivre l'ordre. Une commande
+    /// « !hint &lt;terme&gt; » ouvre une demande, que la suite tranche — une ou plusieurs lignes
+    /// « [Hint]: » l'aboutissent, un refus la ferme faute de points, et n'importe quelle autre
+    /// ligne la laisse sans reponse, cas d'un nom d'objet inconnu.
+    ///
+    /// Trois pieges que les journaux imposent :
+    ///   - une seule demande peut reveler PLUSIEURS emplacements, quand le nom d'objet est
+    ///     ambigu (« !hint progressive sword » en rend deux) ;
+    ///   - redemander un indice deja obtenu le reaffiche GRATUITEMENT : compter les lignes
+    ///     « [Hint]: » gonflerait le score, d'ou le decompte des emplacements distincts ;
+    ///   - un « !hint » nu ne demande rien, il LISTE ce que le joueur sait deja.
+    /// </summary>
+    private sealed class SuiviIndices
+    {
+        private readonly Dictionary<string, List<IndiceLogDto>> _demandes = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _reveles = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _dejaTrouves = new(StringComparer.Ordinal);
+
+        /// <summary>Demande ouverte, en attente de son sort.</summary>
+        private (string Alias, DateTime Horodatage, string Terme, bool Aboutie)? _encours;
+
+        public IEnumerable<string> Alias => _demandes.Keys;
+
+        public IReadOnlyList<IndiceLogDto> Demandes(string alias) =>
+            _demandes.GetValueOrDefault(alias) ?? [];
+
+        public int NbDistincts(string alias) => _reveles.GetValueOrDefault(alias)?.Count ?? 0;
+
+        public int NbDejaTrouves(string alias) => _dejaTrouves.GetValueOrDefault(alias)?.Count ?? 0;
+
+        /// <summary>
+        /// Rend vrai si la ligne appartient a la famille des indices. Toute autre ligne clot la
+        /// demande en cours.
+        /// </summary>
+        public bool Consommer(DateTime horodatage, string message)
+        {
+            var commande = CommandeIndice().Match(message);
+            if (commande.Success)
+            {
+                Clore(null, null);
+
+                var alias = Slot(commande);
+                var terme = commande.Groups[3].Value.Trim();
+
+                // Un « !hint » nu ne demande rien : il reaffiche ce qui est deja connu.
+                if (terme.Length > 0)
+                {
+                    _encours = (alias, horodatage, terme, false);
+                }
+
+                return true;
+            }
+
+            var revele = Indice().Match(message);
+            if (revele.Success)
+            {
+                if (_encours is { } demande)
+                {
+                    // La cle identifie l'emplacement revele, pas la ligne : c'est elle qui
+                    // rend un reaffichage inoffensif.
+                    var cle = $"{revele.Groups[1].Value}|{revele.Groups[2].Value}|{revele.Groups[3].Value}";
+
+                    Ajouter(_reveles, demande.Alias, cle);
+                    if (revele.Groups[5].Value == "found")
+                    {
+                        Ajouter(_dejaTrouves, demande.Alias, cle);
+                    }
+
+                    _encours = demande with { Aboutie = true };
+                }
+
+                return true;
+            }
+
+            var refus = Refus().Match(message);
+            if (refus.Success)
+            {
+                Clore(
+                    int.Parse(refus.Groups[2].Value, CultureInfo.InvariantCulture),
+                    int.Parse(refus.Groups[3].Value, CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            var prix = Prix().Match(message);
+            if (prix.Success)
+            {
+                // Annonce du tarif : elle suit l'issue sans la changer, mais donne le solde.
+                Clore(
+                    int.Parse(prix.Groups[3].Value, CultureInfo.InvariantCulture),
+                    int.Parse(prix.Groups[2].Value, CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            Clore(null, null);
+            return false;
+        }
+
+        /// <summary>Ferme la demande en cours sur son sort. Sans demande ouverte, ne fait rien.</summary>
+        private void Clore(int? points, int? cout)
+        {
+            if (_encours is not { } demande)
+            {
+                return;
+            }
+
+            _encours = null;
+
+            var resultat = demande.Aboutie
+                ? ResultatIndice.Obtenu
+                : points is not null ? ResultatIndice.Refuse : ResultatIndice.SansReponse;
+
+            if (!_demandes.TryGetValue(demande.Alias, out var liste))
+            {
+                _demandes[demande.Alias] = liste = [];
+            }
+
+            liste.Add(new IndiceLogDto(demande.Horodatage, demande.Terme, resultat, points, cout));
+        }
+
+        /// <summary>Vide le suivi de sa derniere demande, une fois le journal parcouru.</summary>
+        public void Terminer() => Clore(null, null);
+
+        private static void Ajouter(Dictionary<string, HashSet<string>> ou, string alias, string cle)
+        {
+            if (!ou.TryGetValue(alias, out var ensemble))
+            {
+                ou[alias] = ensemble = new HashSet<string>(StringComparer.Ordinal);
+            }
+
+            ensemble.Add(cle);
+        }
     }
 
     /// <summary>
@@ -337,6 +486,23 @@ public static partial class AnalyseurLogArchipelago
 
     [GeneratedRegex($@"^Notice \(all\): {Acteur} \(Team #\d+\) has released all remaining items from their world\.$")]
     private static partial Regex Liberation();
+
+    [GeneratedRegex($@"^Notice \(all\): {Acteur}: !hint *(.*)$")]
+    private static partial Regex CommandeIndice();
+
+    /// <summary>
+    /// « [Hint]: W1SM's Gravity Suit is at Hype Cave in W1ALTTP's World. (priority) » : le
+    /// proprietaire de l'objet, l'objet, le lieu, le monde qui le detient, et si le lieu a
+    /// deja ete visite.
+    /// </summary>
+    [GeneratedRegex(@"^Notice \(Team #\d+\): \[Hint\]: (\S+)'s (.+?) is at (.+?) in (\S+)'s World\. \((found|priority)\)$")]
+    private static partial Regex Indice();
+
+    [GeneratedRegex(@"^Notice \(Player (\S+) in team \d+\): You can't afford the hint\. You have (\d+) points and need at least (\d+)\.$")]
+    private static partial Regex Refus();
+
+    [GeneratedRegex(@"^Notice \(Player (\S+) in team \d+\): A hint costs (\d+) points\. You have (\d+) points\.$")]
+    private static partial Regex Prix();
 
     [GeneratedRegex(@"^Notice \(all\): \S+.*: ")]
     private static partial Regex Bavardage();

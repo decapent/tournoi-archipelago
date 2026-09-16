@@ -21,6 +21,8 @@ public class Match
     /// <summary>Progression importee d'un journal Archipelago, s'il y en a eu un.</summary>
     public ICollection<CheckHorodate> Checks { get; set; } = new List<CheckHorodate>();
 
+    public ICollection<IndiceHorodate> Indices { get; set; } = new List<IndiceHorodate>();
+
     /// <summary>Identifiants des equipes engagees.</summary>
     public IEnumerable<int> EquipeIds => Equipes.Select(engagement => engagement.EquipeId);
 }

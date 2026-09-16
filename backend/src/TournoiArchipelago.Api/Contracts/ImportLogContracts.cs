@@ -1,5 +1,36 @@
 namespace TournoiArchipelago.Api.Contracts;
 
+/// <summary>Ce qu'une demande d'indice a donne.</summary>
+public enum ResultatIndice
+{
+    /// <summary>Le serveur a revele au moins un emplacement.</summary>
+    Obtenu,
+
+    /// <summary>Refusee faute de points d'indice.</summary>
+    Refuse,
+
+    /// <summary>
+    /// Restee sans reponse : le nom d'objet ne correspond a rien. Le joueur cherche son
+    /// orthographe et reessaie aussitot, comme « !hint lantern » suivi de « !hint lamp ».
+    /// </summary>
+    SansReponse,
+}
+
+/// <summary>
+/// Une demande d'indice, telle que le journal la raconte. Une demande peut reveler plusieurs
+/// emplacements quand le nom d'objet est ambigu, et redemander un indice deja obtenu le
+/// reaffiche sans rien couter.
+/// </summary>
+public record IndiceLogDto(
+    DateTime Horodatage,
+    /// <summary>Terme cherche, tel que tape par le joueur.</summary>
+    string Terme,
+    ResultatIndice Resultat,
+    /// <summary>Solde de points au moment de la demande, quand le serveur l'annonce.</summary>
+    int? PointsRestants,
+    /// <summary>Prix d'un indice, proportionnel a la taille du monde, quand il est annonce.</summary>
+    int? Cout);
+
 /// <summary>Ce qu'un journal Archipelago apprend sur un joueur.</summary>
 public record JoueurLogDto(
     /// <summary>Pseudonyme dans la partie, a rapprocher d'un joueur du roster.</summary>
@@ -20,7 +51,18 @@ public record JoueurLogDto(
     /// <summary>Vrai en l'absence d'objectif : le joueur n'a pas fini sa seed.</summary>
     bool EstAbandon,
     /// <summary>Horodatage de chaque check trouve, pour tracer la progression.</summary>
-    IReadOnlyList<DateTime> Horodatages);
+    IReadOnlyList<DateTime> Horodatages,
+    /// <summary>Chaque demande d'indice, dans l'ordre.</summary>
+    IReadOnlyList<IndiceLogDto> Indices,
+    /// <summary>
+    /// Emplacements differents reellement reveles au joueur. Plus petit que le nombre de
+    /// demandes abouties : redemander un indice connu le reaffiche.
+    /// </summary>
+    int IndicesDistincts,
+    /// <summary>
+    /// Parmi eux, ceux qui pointaient un lieu deja visite. L'indice n'apprend alors rien.
+    /// </summary>
+    int IndicesDejaTrouves);
 
 /// <summary>Une famille de lignes reconnue dans le journal, avec un exemple.</summary>
 public record SignalLogDto(string Signal, int Occurrences, string Exemple);
@@ -56,6 +98,9 @@ public record ImportLogRequest(
     DateTime DepartCourse,
     IReadOnlyList<CorrespondanceAliasDto>? Correspondances);
 
+/// <summary>Une demande d'indice situee dans la course, en secondes depuis le depart.</summary>
+public record IndiceProgressionDto(int Secondes, ResultatIndice Resultat, int? PointsRestants);
+
 /// <summary>Progression d'un joueur, en secondes depuis le depart de la course.</summary>
 public record ProgressionJoueurDto(
     int JoueurId,
@@ -65,7 +110,9 @@ public record ProgressionJoueurDto(
     string JeuNom,
     /// <summary>Taille du monde, pour situer la progression par rapport a son terme.</summary>
     int? TotalChecks,
-    IReadOnlyList<int> Secondes);
+    IReadOnlyList<int> Secondes,
+    /// <summary>Ses demandes d'indice, pour la frise qui accompagne la courbe.</summary>
+    IReadOnlyList<IndiceProgressionDto> Indices);
 
 /// <summary>Courbes de progression d'un match, pretes a tracer.</summary>
 public record ProgressionMatchDto(

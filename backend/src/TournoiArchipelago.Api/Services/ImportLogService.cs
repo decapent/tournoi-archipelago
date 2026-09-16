@@ -46,26 +46,42 @@ public class ImportLogService(TournoiDbContext db)
             .AsNoTracking()
             .ToListAsync(annulation);
 
+        var indices = await db.Indices
+            .Where(i => i.MatchId == matchId)
+            .AsNoTracking()
+            .ToListAsync(annulation);
+
         var equipeParJoueur = match.Equipes
             .Where(e => e.Equipe is not null)
             .SelectMany(e => e.Equipe!.Membres.Select(m => (m.JoueurId, e.Equipe)))
             .ToDictionary(p => p.JoueurId, p => p.Equipe!);
 
-        var joueurs = checks
-            .GroupBy(c => c.JoueurId)
-            .Select(g =>
+        // Un joueur peut n'avoir que des indices, ou que des checks : la reunion des deux
+        // sources evite de le perdre.
+        var joueurIds = checks.Select(c => c.JoueurId)
+            .Concat(indices.Select(i => i.JoueurId))
+            .Distinct();
+
+        var joueurs = joueurIds
+            .Select(joueurId =>
             {
-                var ligne = match.MatchJeux.FirstOrDefault(mj => mj.JoueurId == g.Key);
-                var equipe = equipeParJoueur.GetValueOrDefault(g.Key);
+                var ligne = match.MatchJeux.FirstOrDefault(mj => mj.JoueurId == joueurId);
+                var equipe = equipeParJoueur.GetValueOrDefault(joueurId);
 
                 return new ProgressionJoueurDto(
-                    JoueurId: g.Key,
-                    JoueurNom: ligne?.Joueur?.Nom ?? $"#{g.Key}",
+                    JoueurId: joueurId,
+                    JoueurNom: ligne?.Joueur?.Nom ?? $"#{joueurId}",
                     EquipeId: equipe?.Id,
                     EquipeNom: equipe?.Nom ?? ScoringService.NomEquipeInconnue,
                     JeuNom: ligne?.Jeu?.Nom ?? string.Empty,
                     TotalChecks: ligne?.TotalChecks,
-                    Secondes: [.. g.Select(c => c.Secondes).Order()]);
+                    Secondes: [.. checks.Where(c => c.JoueurId == joueurId)
+                                        .Select(c => c.Secondes)
+                                        .Order()],
+                    Indices: [.. indices.Where(i => i.JoueurId == joueurId)
+                                        .OrderBy(i => i.Secondes)
+                                        .Select(i => new IndiceProgressionDto(
+                                            i.Secondes, i.Resultat, i.PointsRestants))]);
             })
             .OrderBy(j => j.EquipeNom, StringComparer.OrdinalIgnoreCase)
             .ThenBy(j => j.JoueurNom, StringComparer.OrdinalIgnoreCase)
@@ -101,6 +117,8 @@ public class ImportLogService(TournoiDbContext db)
         {
             ligne.NbChecks = joueurLog.ChecksTrouves;
             ligne.EstAbandon = joueurLog.EstAbandon;
+            ligne.NbIndicesDemandes = joueurLog.Indices.Count;
+            ligne.NbIndicesObtenus = joueurLog.IndicesDistincts;
 
             // Le total du monde n'est connu que si le joueur a termine : la liberation est ce
             // qui enumere les localisations restantes. Sinon on laisse la saisie en place.
@@ -124,7 +142,12 @@ public class ImportLogService(TournoiDbContext db)
             .Where(c => c.MatchId == matchId && joueurIds.Contains(c.JoueurId))
             .ToListAsync(annulation);
 
+        var anciensIndices = await db.Indices
+            .Where(i => i.MatchId == matchId && joueurIds.Contains(i.JoueurId))
+            .ToListAsync(annulation);
+
         db.Checks.RemoveRange(ancienne);
+        db.Indices.RemoveRange(anciensIndices);
 
         foreach (var (ligne, joueurLog) in affectations)
         {
@@ -135,6 +158,18 @@ public class ImportLogService(TournoiDbContext db)
                     MatchId = matchId,
                     JoueurId = ligne.JoueurId,
                     Secondes = Secondes(requete.DepartCourse, horodatage),
+                });
+            }
+
+            foreach (var indice in joueurLog.Indices)
+            {
+                db.Indices.Add(new IndiceHorodate
+                {
+                    MatchId = matchId,
+                    JoueurId = ligne.JoueurId,
+                    Secondes = Secondes(requete.DepartCourse, indice.Horodatage),
+                    Resultat = indice.Resultat,
+                    PointsRestants = indice.PointsRestants,
                 });
             }
         }

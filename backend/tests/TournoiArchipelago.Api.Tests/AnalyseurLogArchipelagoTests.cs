@@ -123,6 +123,124 @@ public class AnalyseurLogArchipelagoTests
         Assert.Empty(rapport.Joueurs);
     }
 
+    /// <summary>
+    /// Extrait fidele aux journaux du tournoi : la saga de la flute, ou le joueur reessaie
+    /// cinq fois en regardant sa cagnotte monter, puis obtient son indice.
+    /// </summary>
+    private const string JournalAvecIndices = """
+        [2026-09-14 23:20:00,000]: Notice (all): W1ALTTP (Team #1) playing A Link to the Past has joined. Client(0.6.7), ['AP'].
+        [2026-09-14 23:35:33,000]: Notice (all): IcyDragon (W1ALTTP): !hint lantern
+        [2026-09-14 23:35:36,000]: Notice (all): IcyDragon (W1ALTTP): !hint lamp
+        [2026-09-14 23:35:36,001]: Notice (Team #1): [Hint]: W1ALTTP's Lamp is at Kings Tomb in W1ALTTP's World. (priority)
+        [2026-09-14 23:56:01,000]: Notice (all): IcyDragon (W1ALTTP): !hint flute
+        [2026-09-14 23:56:01,001]: Notice (Player W1ALTTP in team 1): You can't afford the hint. You have 1 points and need at least 43.
+        [2026-09-15 00:20:17,000]: Notice (all): IcyDragon (W1ALTTP): !hint flute
+        [2026-09-15 00:20:17,001]: Notice (Player W1ALTTP in team 1): You can't afford the hint. You have 30 points and need at least 43.
+        [2026-09-15 00:34:07,000]: Notice (all): IcyDragon (W1ALTTP): !hint flute
+        [2026-09-15 00:34:07,001]: Notice (Team #1): [Hint]: W1ALTTP's Flute is at Power Bomb in W1SM's World. (priority)
+        """;
+
+    [Fact]
+    public void Les_trois_issues_d_une_demande_d_indice_sont_distinguees()
+    {
+        var indices = Joueur(AnalyseurLogArchipelago.Analyser(JournalAvecIndices), "W1ALTTP").Indices;
+
+        Assert.Equal(5, indices.Count);
+
+        // « lantern » n'existe pas dans ce jeu : le serveur ne repond rien, et le joueur
+        // corrige en « lamp » trois secondes plus tard.
+        Assert.Equal(ResultatIndice.SansReponse, indices[0].Resultat);
+        Assert.Equal("lantern", indices[0].Terme);
+        Assert.Equal(ResultatIndice.Obtenu, indices[1].Resultat);
+
+        Assert.Equal(ResultatIndice.Refuse, indices[2].Resultat);
+        Assert.Equal(ResultatIndice.Refuse, indices[3].Resultat);
+        Assert.Equal(ResultatIndice.Obtenu, indices[4].Resultat);
+    }
+
+    [Fact]
+    public void Un_refus_publie_le_solde_de_points_et_le_prix()
+    {
+        var indices = Joueur(AnalyseurLogArchipelago.Analyser(JournalAvecIndices), "W1ALTTP").Indices;
+
+        var refus = indices.Where(i => i.Resultat == ResultatIndice.Refuse).ToList();
+        Assert.Equal([1, 30], refus.Select(i => i.PointsRestants));
+        Assert.All(refus, i => Assert.Equal(43, i.Cout));
+
+        // Le serveur n'annonce le solde qu'en refusant : un indice accorde ne le dit pas.
+        Assert.All(
+            indices.Where(i => i.Resultat == ResultatIndice.Obtenu),
+            i => Assert.Null(i.PointsRestants));
+    }
+
+    [Fact]
+    public void Une_demande_ambigue_rend_plusieurs_emplacements_mais_reste_une_demande()
+    {
+        // « progressive sword » designe plusieurs exemplaires : le serveur les revele tous.
+        var journal = """
+            [2026-09-15 00:39:17,000]: Notice (all): IcyDragon (W1ALTTP): !hint progressive sword
+            [2026-09-15 00:39:17,333]: Notice (Team #1): [Hint]: W1ALTTP's Progressive Sword is at Energy Tank, Gauntlet in W1SM's World. (found)
+            [2026-09-15 00:39:17,334]: Notice (Team #1): [Hint]: W1ALTTP's Progressive Sword is at Secret Passage in W1ALTTP's World. (found)
+            """;
+
+        var joueur = AnalyseurLogArchipelago.Analyser(journal).Joueurs.Single();
+
+        Assert.Equal(1, joueur.Indices.Count);
+        Assert.Equal(ResultatIndice.Obtenu, joueur.Indices[0].Resultat);
+        Assert.Equal(2, joueur.IndicesDistincts);
+
+        // Les deux pointaient un lieu deja visite : l'indice n'a rien appris.
+        Assert.Equal(2, joueur.IndicesDejaTrouves);
+    }
+
+    [Fact]
+    public void Redemander_un_indice_connu_ne_le_compte_pas_deux_fois()
+    {
+        // Le serveur reaffiche gratuitement ce que le joueur sait deja. Compter les lignes
+        // « [Hint] » gonflerait son score.
+        var journal = """
+            [2026-09-15 00:39:17,000]: Notice (all): IcyDragon (W1ALTTP): !hint progressive sword
+            [2026-09-15 00:39:17,333]: Notice (Team #1): [Hint]: W1ALTTP's Progressive Sword is at Secret Passage in W1ALTTP's World. (found)
+            [2026-09-15 00:43:59,000]: Notice (all): IcyDragon (W1ALTTP): !hint progressive sword
+            [2026-09-15 00:43:59,166]: Notice (Team #1): [Hint]: W1ALTTP's Progressive Sword is at Secret Passage in W1ALTTP's World. (found)
+            """;
+
+        var joueur = AnalyseurLogArchipelago.Analyser(journal).Joueurs.Single();
+
+        Assert.Equal(2, joueur.Indices.Count);
+        Assert.Equal(1, joueur.IndicesDistincts);
+    }
+
+    [Fact]
+    public void Un_hint_nu_liste_les_indices_connus_et_ne_compte_pas_comme_demande()
+    {
+        var journal = """
+            [2026-09-15 00:30:14,000]: Notice (all): W2FF4: !hint
+            [2026-09-15 00:30:14,620]: Notice (Team #1): [Hint]: W7Z1's Sword is at Baron Castle in W2FF4's World. (found)
+            [2026-09-15 00:30:14,621]: Notice (Team #1): [Hint]: W2FF4's Magma Key is at Antlion Cave in W2FF4's World. (found)
+            [2026-09-15 00:30:14,622]: Notice (Player W2FF4 in team 1): A hint costs 89 points. You have 75 points.
+            """;
+
+        var rapport = AnalyseurLogArchipelago.Analyser(journal);
+
+        // Aucune demande : le joueur a seulement consulte sa liste. Rien n'est non plus
+        // credite en indices obtenus, ces emplacements etant connus de longue date.
+        Assert.All(rapport.Joueurs, j => Assert.Empty(j.Indices));
+        Assert.All(rapport.Joueurs, j => Assert.Equal(0, j.IndicesDistincts));
+    }
+
+    [Fact]
+    public void Une_demande_d_indice_n_est_pas_prise_pour_du_bavardage()
+    {
+        var rapport = AnalyseurLogArchipelago.Analyser(JournalAvecIndices);
+        var signaux = rapport.Signaux.ToDictionary(s => s.Signal, s => s.Occurrences);
+
+        // Cinq commandes, deux lignes revelees et deux refus : neuf lignes de la famille.
+        Assert.Equal(9, signaux[SignauxLog.Indice]);
+        Assert.False(signaux.ContainsKey(SignauxLog.Bavardage));
+        Assert.False(signaux.ContainsKey(SignauxLog.Inconnu));
+    }
+
     [Fact]
     public void Le_depart_est_estime_au_premier_check_pas_a_l_ouverture_du_serveur()
     {

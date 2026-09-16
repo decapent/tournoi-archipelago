@@ -21,6 +21,8 @@ public class MatchJeuConfiguration : IEntityTypeConfiguration<MatchJeu>
         builder.Property(mj => mj.Seed).HasColumnName("seed").HasMaxLength(200);
         builder.Property(mj => mj.TotalChecks).HasColumnName("total_checks");
         builder.Property(mj => mj.NbChecks).HasColumnName("nb_checks");
+        builder.Property(mj => mj.NbIndicesDemandes).HasColumnName("nb_indices_demandes");
+        builder.Property(mj => mj.NbIndicesObtenus).HasColumnName("nb_indices_obtenus");
 
         // Temps brut en secondes : completion, ou instant de l'abandon. NULL tant que le
         // resultat n'est pas saisi ; la penalite d'abandon est calculee, jamais stockee.
