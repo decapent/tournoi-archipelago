@@ -52,6 +52,12 @@ public record JoueurLogDto(
     bool EstAbandon,
     /// <summary>Horodatage de chaque check trouve, pour tracer la progression.</summary>
     IReadOnlyList<DateTime> Horodatages,
+    /// <summary>
+    /// Horodatage des lignes emises par une rafale de collecte ou de liberation. Elles ne
+    /// comptent pas comme des checks trouves, mais la courbe les montre : ce sont elles qui
+    /// la menent jusqu'a la taille du monde, a l'instant exact de la completion.
+    /// </summary>
+    IReadOnlyList<DateTime> HorodatagesRafale,
     /// <summary>Chaque demande d'indice, dans l'ordre.</summary>
     IReadOnlyList<IndiceLogDto> Indices,
     /// <summary>
@@ -110,7 +116,13 @@ public record ProgressionJoueurDto(
     string JeuNom,
     /// <summary>Taille du monde, pour situer la progression par rapport a son terme.</summary>
     int? TotalChecks,
+    /// <summary>Instants des checks reellement trouves.</summary>
     IReadOnlyList<int> Secondes,
+    /// <summary>
+    /// Instants des lignes de rafale. La courbe les trace a la suite des precedents : elle
+    /// rejoint ainsi la taille du monde a l'instant de la completion.
+    /// </summary>
+    IReadOnlyList<int> SecondesRafale,
     /// <summary>Ses demandes d'indice, pour la frise qui accompagne la courbe.</summary>
     IReadOnlyList<IndiceProgressionDto> Indices);
 

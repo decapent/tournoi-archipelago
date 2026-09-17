@@ -6,6 +6,12 @@ import { formaterTemps } from '../lib/format'
 /**
  * Courbes de checks cumules dans le temps, une par joueur.
  *
+ * La courbe trace TOUTES les lignes du journal, rafales de collecte et de liberation
+ * comprises. Elles ne sont pas des checks trouves — le tableau au-dessus ne les compte pas —
+ * mais ce sont elles qui menent la courbe jusqu'a la taille du monde, a l'instant exact de la
+ * completion. Sans elles, la courbe s'arretait au dernier check et paraissait tronquee face
+ * au temps affiche a cote.
+ *
  * Trace en SVG plutot qu'avec une librairie : un escalier monotone n'a besoin ni d'echelles
  * savantes ni d'interactivite lourde, et le projet reste sans dependance de graphiques.
  */
@@ -33,7 +39,14 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
   const identifiant = useId()
   const [survole, setSurvole] = useState<number | null>(null)
 
-  const traces = joueurs.filter((joueur) => joueur.secondes.length > 0)
+  const traces = joueurs
+    .filter((joueur) => joueur.secondes.length + joueur.secondesRafale.length > 0)
+    .map((joueur) => ({
+      ...joueur,
+      // Un seul escalier, du premier check jusqu'au vidage du monde.
+      points: [...joueur.secondes, ...joueur.secondesRafale].sort((a, b) => a - b),
+    }))
+
   if (traces.length === 0) {
     return null
   }
@@ -51,9 +64,9 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
     ),
   ].sort((a, b) => b[1] - a[1])
 
-  const tempsMax = Math.max(...traces.map((joueur) => joueur.secondes.at(-1) ?? 0))
+  const tempsMax = Math.max(...traces.map((joueur) => joueur.points.at(-1) ?? 0))
   const checksMax = Math.max(
-    ...traces.map((joueur) => joueur.secondes.length),
+    ...traces.map((joueur) => joueur.points.length),
     ...arrivees.map(([, total]) => total),
   )
 
@@ -154,7 +167,7 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
           return (
             <path
               key={joueur.joueurId}
-              d={escalier(joueur.secondes, x, y)}
+              d={escalier(joueur.points, x, y)}
               fill="none"
               stroke={COULEURS[rang % COULEURS.length]}
               strokeWidth={survole === joueur.joueurId ? 2.5 : 1.6}
@@ -183,7 +196,8 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
             <span style={styleEquipe(joueur.equipeNom)}>{joueur.equipeNom}</span>
             <span className="text-texte-doux">
               {joueur.jeuNom !== '' && `${joueur.jeuNom} · `}
-              {joueur.secondes.length} checks
+              {joueur.secondes.length} checks trouves
+              {joueur.secondesRafale.length > 0 && ` sur ${joueur.points.length}`}
             </span>
           </li>
         ))}

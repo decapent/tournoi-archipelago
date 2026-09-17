@@ -18,6 +18,13 @@ public class CheckHorodate
     /// <summary>Secondes ecoulees depuis le depart de la course.</summary>
     public int Secondes { get; set; }
 
+    /// <summary>
+    /// Vrai quand la ligne vient d'une rafale de collecte ou de liberation plutot que d'une
+    /// fouille. Elle ne compte pas dans les checks trouves, mais la courbe la montre : c'est
+    /// elle qui la mene jusqu'a la taille du monde.
+    /// </summary>
+    public bool EstRafale { get; set; }
+
     public Match? Match { get; set; }
 
     public Joueur? Joueur { get; set; }
