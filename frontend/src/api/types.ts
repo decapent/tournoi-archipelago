@@ -271,7 +271,13 @@ export interface ProgressionJoueur {
   jeuNom: string
   /** Taille du monde, pour situer la progression par rapport a son terme. */
   totalChecks: number | null
+  /** Instants des checks reellement trouves. */
   secondes: number[]
+  /**
+   * Instants des lignes de rafale, collecte et liberation. La courbe les trace a la suite
+   * des precedents : elle rejoint ainsi la taille du monde a l'instant de la completion.
+   */
+  secondesRafale: number[]
   indices: IndiceProgression[]
 }
 

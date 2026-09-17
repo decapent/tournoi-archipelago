@@ -15,6 +15,7 @@ public class CheckHorodateConfiguration : IEntityTypeConfiguration<CheckHorodate
         builder.Property(c => c.MatchId).HasColumnName("match_id");
         builder.Property(c => c.JoueurId).HasColumnName("joueur_id");
         builder.Property(c => c.Secondes).HasColumnName("secondes");
+        builder.Property(c => c.EstRafale).HasColumnName("est_rafale").IsRequired();
 
         builder.HasOne(c => c.Match)
             .WithMany(m => m.Checks)

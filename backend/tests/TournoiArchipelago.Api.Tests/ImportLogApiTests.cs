@@ -121,11 +121,41 @@ public class ImportLogApiTests
         // rapport a son terme, et qui trace le seuil du jeu sur le graphique.
         Assert.Equal(3, alice.TotalChecks);
 
-        // La liberation n'apparait pas dans la courbe.
+        // La liberation reste hors des checks trouves...
         Assert.DoesNotContain(3_600, alice.Secondes);
+
+        // ...mais la courbe la trace a part : c'est elle qui la mene jusqu'a la taille du
+        // monde, a l'instant de la completion. Sans cela, la courbe s'arreterait au dernier
+        // check et paraitrait tronquee face au temps affiche a cote.
+        Assert.Equal([3_600], alice.SecondesRafale);
 
         var bob = progression.Joueurs.Single(j => j.JoueurId == p.Bob.Id);
         Assert.Equal([2_700], bob.Secondes);
+
+        // Bob a abandonne : son monde n'a pas ete vide, sa courbe s'arrete la ou il s'arrete.
+        Assert.Empty(bob.SecondesRafale);
+    }
+
+    [Fact]
+    public async Task La_courbe_complete_atteint_la_taille_du_monde_a_la_completion()
+    {
+        using var api = new ApiDeTest();
+        var client = await api.CreerClientAdminAsync();
+        var p = await PreparerAsync(api, client);
+
+        await ImporterAsync(client, p);
+
+        var progression = await client.GetFromJsonAsync<ProgressionMatchDto>(
+            $"/api/matchs/{p.MatchId}/progression", ApiDeTest.Json);
+
+        var alice = progression!.Joueurs.Single(j => j.JoueurId == p.Alice.Id);
+
+        // Deux checks trouves plus une ligne de liberation : la courbe compte trois points,
+        // exactement la taille du monde annoncee dans le tableau.
+        Assert.Equal(alice.TotalChecks, alice.Secondes.Count + alice.SecondesRafale.Count);
+
+        // Et le dernier point tombe au temps retenu pour le joueur.
+        Assert.Equal(3_600, alice.SecondesRafale[^1]);
     }
 
     [Fact]

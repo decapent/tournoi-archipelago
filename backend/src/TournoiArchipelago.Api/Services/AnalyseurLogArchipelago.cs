@@ -47,6 +47,7 @@ public static partial class AnalyseurLogArchipelago
 
         // Par alias : les checks reellement trouves, et toutes les lignes qu'il a emises.
         var trouves = new Dictionary<string, List<DateTime>>(StringComparer.Ordinal);
+        var rafales = new Dictionary<string, List<DateTime>>(StringComparer.Ordinal);
         var emises = new Dictionary<string, int>(StringComparer.Ordinal);
         var jeuParAlias = new Dictionary<string, string>(StringComparer.Ordinal);
         var objectifParAlias = new Dictionary<string, DateTime>(StringComparer.Ordinal);
@@ -84,6 +85,12 @@ public static partial class AnalyseurLogArchipelago
 
                 if (dansRafale)
                 {
+                    if (!rafales.TryGetValue(emetteur, out var siennes))
+                    {
+                        rafales[emetteur] = siennes = [];
+                    }
+
+                    siennes.Add(horodatage);
                     Compter(rafale == Rafale.Collecte ? SignauxLog.Collecte : SignauxLog.Liberation, message);
                 }
                 else
@@ -151,6 +158,7 @@ public static partial class AnalyseurLogArchipelago
         indices.Terminer();
 
         var alias = trouves.Keys
+            .Concat(rafales.Keys)
             .Concat(emises.Keys)
             .Concat(jeuParAlias.Keys)
             .Concat(objectifParAlias.Keys)
@@ -162,6 +170,9 @@ public static partial class AnalyseurLogArchipelago
         {
             var siens = trouves.GetValueOrDefault(a) ?? [];
             siens.Sort();
+
+            var siennesRafales = rafales.GetValueOrDefault(a) ?? [];
+            siennesRafales.Sort();
 
             var objectif = objectifParAlias.TryGetValue(a, out var o) ? o : (DateTime?)null;
 
@@ -176,6 +187,7 @@ public static partial class AnalyseurLogArchipelago
                 Objectif: objectif,
                 EstAbandon: objectif is null,
                 Horodatages: siens,
+                HorodatagesRafale: siennesRafales,
                 Indices: indices.Demandes(a),
                 IndicesDistincts: indices.NbDistincts(a),
                 IndicesDejaTrouves: indices.NbDejaTrouves(a));
