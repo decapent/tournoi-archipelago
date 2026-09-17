@@ -319,8 +319,8 @@ public class StatsServiceTests
         Assert.Equal(1, alice.Victoires);
         Assert.Equal(0, alice.NbAbandons);
 
+        Assert.Equal(5_400, alice.TempsTotalSecs);
         Assert.Equal(2_700, alice.TempsMoyenSecs);
-        Assert.Equal(2_700, alice.TempsMedianSecs);
         Assert.Equal(1_800, alice.MeilleurTempsSecs);
         Assert.Equal("A Link to the Past", alice.MeilleurJeuNom);
 
@@ -361,10 +361,10 @@ public class StatsServiceTests
         Assert.Equal(1, alice.SeedsJouees);
         Assert.Equal(1, alice.NbAbandons);
 
-        // Un abandon ne mesure pas une completion : il ne nourrit ni moyenne, ni mediane,
-        // ni meilleur temps, ni rythme.
+        // Un abandon ne mesure pas une completion : ni moyenne, ni meilleur temps, ni
+        // rythme. Le temps total non plus, qui reste donc a zero.
+        Assert.Equal(0, alice.TempsTotalSecs);
         Assert.Null(alice.TempsMoyenSecs);
-        Assert.Null(alice.TempsMedianSecs);
         Assert.Null(alice.MeilleurTempsSecs);
         Assert.Null(alice.MeilleurJeuNom);
         Assert.Null(alice.ChecksParHeure);

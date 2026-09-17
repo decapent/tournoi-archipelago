@@ -31,9 +31,13 @@ public record StatsJoueurDto(
     int SeedsJouees,
     /// <summary>Matchs complets remportes par son equipe.</summary>
     int Victoires,
-    /// <summary>Moyenne des seeds terminees. Les abandons sont exclus : ils ne mesurent pas une completion.</summary>
+    /// <summary>
+    /// Temps cumule de ses seeds terminees. Les abandons en sont exclus, comme de la moyenne
+    /// et du meilleur temps : ils ne mesurent pas une completion.
+    /// </summary>
+    int TempsTotalSecs,
+    /// <summary>Moyenne des seeds terminees, abandons exclus.</summary>
     double? TempsMoyenSecs,
-    int? TempsMedianSecs,
     int? MeilleurTempsSecs,
     string? MeilleurJeuNom,
     int ChecksTrouves,
