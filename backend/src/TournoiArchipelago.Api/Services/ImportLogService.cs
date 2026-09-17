@@ -75,9 +75,12 @@ public class ImportLogService(TournoiDbContext db)
                     EquipeNom: equipe?.Nom ?? ScoringService.NomEquipeInconnue,
                     JeuNom: ligne?.Jeu?.Nom ?? string.Empty,
                     TotalChecks: ligne?.TotalChecks,
-                    Secondes: [.. checks.Where(c => c.JoueurId == joueurId)
+                    Secondes: [.. checks.Where(c => c.JoueurId == joueurId && !c.EstRafale)
                                         .Select(c => c.Secondes)
                                         .Order()],
+                    SecondesRafale: [.. checks.Where(c => c.JoueurId == joueurId && c.EstRafale)
+                                              .Select(c => c.Secondes)
+                                              .Order()],
                     Indices: [.. indices.Where(i => i.JoueurId == joueurId)
                                         .OrderBy(i => i.Secondes)
                                         .Select(i => new IndiceProgressionDto(
@@ -158,6 +161,19 @@ public class ImportLogService(TournoiDbContext db)
                     MatchId = matchId,
                     JoueurId = ligne.JoueurId,
                     Secondes = Secondes(requete.DepartCourse, horodatage),
+                });
+            }
+
+            // Conservees a part : elles ne comptent pas dans les checks trouves, mais la
+            // courbe les trace pour rejoindre la taille du monde.
+            foreach (var horodatage in joueurLog.HorodatagesRafale)
+            {
+                db.Checks.Add(new CheckHorodate
+                {
+                    MatchId = matchId,
+                    JoueurId = ligne.JoueurId,
+                    Secondes = Secondes(requete.DepartCourse, horodatage),
+                    EstRafale = true,
                 });
             }
 
