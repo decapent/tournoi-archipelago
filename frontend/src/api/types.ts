@@ -122,9 +122,13 @@ export interface StatsJoueur {
   seedsJouees: number
   /** Matchs complets remportes par son equipe. */
   victoires: number
-  /** Moyenne des seeds terminees : les abandons ne mesurent pas une completion. */
+  /**
+   * Temps cumule de ses seeds terminees. Les abandons en sont exclus, comme de la moyenne
+   * et du meilleur temps : ils ne mesurent pas une completion.
+   */
+  tempsTotalSecs: number
+  /** Moyenne des seeds terminees, abandons exclus. */
   tempsMoyenSecs: number | null
-  tempsMedianSecs: number | null
   meilleurTempsSecs: number | null
   meilleurJeuNom: string | null
   checksTrouves: number
