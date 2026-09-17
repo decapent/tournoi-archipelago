@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import type { ProgressionJoueur } from '../api/types'
-import { styleEquipe } from '../lib/couleursEquipes'
+import { couleurEquipe, styleEquipe } from '../lib/couleursEquipes'
 import { formaterTemps } from '../lib/format'
 
 /**
@@ -20,7 +20,10 @@ const MARGE = { haut: 12, droite: 16, bas: 34, gauche: 46 }
 const LARGEUR = 760
 const HAUTEUR = 300
 
-/** Teintes distinctes et lisibles sur le fond sombre, reprises dans la legende. */
+/**
+ * Teintes de repli, pour une equipe absente de la charte du tournoi. Lisibles sur le fond
+ * sombre, comme celles de la charte.
+ */
 const COULEURS = [
   'oklch(0.75 0.16 165)',
   'oklch(0.75 0.16 60)',
@@ -31,6 +34,12 @@ const COULEURS = [
   'oklch(0.72 0.15 340)',
   'oklch(0.78 0.12 190)',
 ]
+
+/**
+ * La couleur portant l'equipe, c'est le trait qui separe ses joueurs entre eux. Quatre motifs
+ * suffisent : c'est l'effectif maximal d'une equipe, en finale.
+ */
+const TRAITS: (string | undefined)[] = [undefined, '7 4', '2 3', '11 3 2 3']
 
 const PAS_TEMPS = [60, 300, 600, 900, 1_800, 3_600, 7_200, 10_800, 21_600, 43_200]
 const PAS_CHECKS = [1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1_000]
@@ -51,8 +60,18 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
     return null
   }
 
-  // Les deux equipes se distinguent au trait — plein ou pointille — en plus de la couleur.
+  // Chaque equipe porte sa couleur de la charte, et ses joueurs se separent au trait. Une
+  // equipe hors charte retombe sur une teinte de repli, pour rester distincte des autres.
   const equipes = [...new Set(traces.map((joueur) => joueur.equipeNom))]
+
+  const couleurDe = (equipeNom: string) =>
+    couleurEquipe(equipeNom) ?? COULEURS[equipes.indexOf(equipeNom) % COULEURS.length]
+
+  const traitDe = (joueur: (typeof traces)[number]) =>
+    TRAITS[
+      traces.filter((autre) => autre.equipeNom === joueur.equipeNom).indexOf(joueur) %
+        TRAITS.length
+    ]
 
   // Un seuil par jeu : la taille de son monde. Les deux equipes courent les memes seeds,
   // les joueurs d'un meme jeu partagent donc le meme total.
@@ -161,7 +180,7 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
           </g>
         ))}
 
-        {traces.map((joueur, rang) => {
+        {traces.map((joueur) => {
           const estEstompe = survole !== null && survole !== joueur.joueurId
 
           return (
@@ -169,9 +188,9 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
               key={joueur.joueurId}
               d={escalier(joueur.points, x, y)}
               fill="none"
-              stroke={COULEURS[rang % COULEURS.length]}
+              stroke={couleurDe(joueur.equipeNom)}
               strokeWidth={survole === joueur.joueurId ? 2.5 : 1.6}
-              strokeDasharray={equipes.indexOf(joueur.equipeNom) === 1 ? '5 3' : undefined}
+              strokeDasharray={traitDe(joueur)}
               strokeLinejoin="round"
               opacity={estEstompe ? 0.25 : 1}
             />
@@ -180,18 +199,24 @@ export function GraphiqueProgression({ joueurs }: { joueurs: ProgressionJoueur[]
       </svg>
 
       <ul className="mt-3 flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
-        {traces.map((joueur, rang) => (
+        {traces.map((joueur) => (
           <li
             key={joueur.joueurId}
             className="flex cursor-default items-center gap-2"
             onMouseEnter={() => setSurvole(joueur.joueurId)}
             onMouseLeave={() => setSurvole(null)}
           >
-            <span
-              aria-hidden
-              className="inline-block h-0.5 w-5 rounded"
-              style={{ backgroundColor: COULEURS[rang % COULEURS.length] }}
-            />
+            <svg width={22} height={6} aria-hidden className="shrink-0">
+              <line
+                x1={0}
+                y1={3}
+                x2={22}
+                y2={3}
+                stroke={couleurDe(joueur.equipeNom)}
+                strokeWidth={2}
+                strokeDasharray={traitDe(joueur)}
+              />
+            </svg>
             <span className="font-medium">{joueur.joueurNom}</span>
             <span style={styleEquipe(joueur.equipeNom)}>{joueur.equipeNom}</span>
             <span className="text-texte-doux">
